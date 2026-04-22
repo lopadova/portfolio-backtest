@@ -207,12 +207,17 @@ def load_data(synthetic: bool = False) -> DataBundle:
 
 def _generate_synthetic_bundle() -> DataBundle:
     """
-    Generate a synthetic 2-year dataset so users can verify the pipeline
-    without needing real data. NOT FOR REAL ANALYSIS.
+    Generate a synthetic 20-year dataset (2005-2024) so users can verify
+    the pipeline end-to-end with output that is structurally representative
+    of a real run (rolling windows populated, crisis zooms non-empty).
+
+    NOT FOR REAL ANALYSIS — the underlying returns are pure random-walks
+    calibrated to rough historical means/vols but with no real correlation
+    structure, no regime dependence, and no actual crisis drawdowns.
     """
     np.random.seed(42)
-    dates_monthly = pd.date_range("2023-01-31", "2024-12-31", freq="ME")
-    dates_daily = pd.date_range("2023-01-02", "2024-12-31", freq="B")
+    dates_monthly = pd.date_range("2005-01-31", "2024-12-31", freq="ME")
+    dates_daily = pd.date_range("2005-01-03", "2024-12-31", freq="B")
 
     # Generate random-walk returns for each sleeve, plausible but fake
     params = {

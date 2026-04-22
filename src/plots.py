@@ -178,17 +178,32 @@ def plot_underwater(returns_dict: Dict[str, pd.Series], path: Path):
 def plot_rolling_sharpe(returns_dict: Dict[str, pd.Series], path: Path, window_months: int = 36):
     _apply_style()
     fig, ax = plt.subplots(figsize=(13, 6.5))
+    any_data = False
+    max_len = max((len(r) for r in returns_dict.values()), default=0)
     for name, returns in returns_dict.items():
         rolling_mean = returns.rolling(window_months).mean() * 12
         rolling_std = returns.rolling(window_months).std() * np.sqrt(12)
         rolling_sharpe = rolling_mean / rolling_std
-        ax.plot(rolling_sharpe.index, rolling_sharpe.values, label=name, linewidth=1.5, color=_color_for(name))
+        if rolling_sharpe.notna().any():
+            any_data = True
+            ax.plot(rolling_sharpe.index, rolling_sharpe.values, label=name, linewidth=1.5, color=_color_for(name))
     ax.axhline(0, color="black", linewidth=0.8)
     ax.axhline(1.0, color="grey", linewidth=0.5, linestyle="--", alpha=0.5)
     _setup_ax(ax, f"Rolling {window_months}-month Sharpe ratio", "Date", "Sharpe (annualized)")
-    ax.legend(loc="lower left")
-    ax.xaxis.set_major_locator(mdates.YearLocator(2))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    if any_data:
+        ax.legend(loc="lower left")
+        ax.xaxis.set_major_locator(mdates.YearLocator(2))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+    else:
+        ax.text(
+            0.5, 0.5,
+            f"Insufficient data for a {window_months}-month rolling window.\n"
+            f"Available: {max_len} months — need at least {window_months + 1}.",
+            transform=ax.transAxes, ha="center", va="center",
+            fontsize=12, color="#666666",
+            bbox=dict(boxstyle="round,pad=0.5", facecolor="#fff3cd", edgecolor="#f0ad4e"),
+        )
+        ax.set_xticks([])
     _save(fig, path)
 
 
@@ -199,14 +214,29 @@ def plot_rolling_sharpe(returns_dict: Dict[str, pd.Series], path: Path, window_m
 def plot_rolling_returns(returns_dict: Dict[str, pd.Series], path: Path, window_months: int = 36):
     _apply_style()
     fig, ax = plt.subplots(figsize=(13, 6.5))
+    any_data = False
+    max_len = max((len(r) for r in returns_dict.values()), default=0)
     for name, returns in returns_dict.items():
         wealth = cumulative_wealth(returns)
         rolling_total = wealth / wealth.shift(window_months) - 1.0
-        ax.plot(rolling_total.index, rolling_total.values * 100, label=name, linewidth=1.5, color=_color_for(name))
+        if rolling_total.notna().any():
+            any_data = True
+            ax.plot(rolling_total.index, rolling_total.values * 100, label=name, linewidth=1.5, color=_color_for(name))
     ax.axhline(0, color="black", linewidth=0.8)
     ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
     _setup_ax(ax, f"Rolling {window_months}-month total return", "Date", "Return over window")
-    ax.legend(loc="lower left")
+    if any_data:
+        ax.legend(loc="lower left")
+    else:
+        ax.text(
+            0.5, 0.5,
+            f"Insufficient data for a {window_months}-month rolling window.\n"
+            f"Available: {max_len} months — need at least {window_months + 1}.",
+            transform=ax.transAxes, ha="center", va="center",
+            fontsize=12, color="#666666",
+            bbox=dict(boxstyle="round,pad=0.5", facecolor="#fff3cd", edgecolor="#f0ad4e"),
+        )
+        ax.set_xticks([])
     ax.xaxis.set_major_locator(mdates.YearLocator(2))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
     _save(fig, path)
@@ -226,17 +256,27 @@ def plot_crisis_zoom(returns_dict: Dict[str, pd.Series], path: Path):
     fig, axes = plt.subplots(1, 3, figsize=(16, 5.2), sharey=False)
     for ax, (start, end, title) in zip(axes, crises):
         ax.set_title(title, fontsize=11, fontweight="bold")
+        plotted_any = False
         for name, returns in returns_dict.items():
             sliced = returns.loc[start:end]
             if len(sliced) == 0:
                 continue
             wealth = cumulative_wealth(sliced, 100.0)
             ax.plot(wealth.index, wealth.values, label=name, linewidth=1.6, color=_color_for(name))
+            plotted_any = True
         ax.axhline(100, color="black", linewidth=0.6, linestyle="--")
         ax.set_ylabel("Indexed (100 at start)")
         ax.grid(True, alpha=0.25)
         ax.tick_params(axis="x", rotation=30, labelsize=8)
         ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        if not plotted_any:
+            ax.text(
+                0.5, 0.5,
+                "No data in this window",
+                transform=ax.transAxes, ha="center", va="center",
+                fontsize=11, color="#999999", style="italic",
+            )
+            ax.set_xticks([])
     # Only emit a legend on the first axis if there's at least one plotted line
     handles, labels = axes[0].get_legend_handles_labels()
     if handles:
