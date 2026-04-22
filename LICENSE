@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 Lorenzo
+Copyright (c) 2026 Lorenzo Padovani
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,12 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+ADDITIONAL NOTICE — DATA AND OUTPUTS:
+The Python code in this repository is licensed under the MIT License above.
+Data files that users source to populate data/raw/ are subject to their
+respective providers' licensing terms (MSCI, CBOE, S&P, FTSE, LBMA, SG,
+Yahoo Finance, FRED, etc.) and are not redistributed with this repository.
+Backtest outputs (charts, statistics) are informational and educational only
+and do not constitute investment advice; see the linked Medium article for
+the full disclaimer.

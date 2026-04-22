@@ -1,0 +1,46 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run test suite
+        run: pytest --tb=short
+
+      - name: Run synthetic-data smoke test
+        run: python backtest.py --synthetic --start 2023-01-31 --end 2024-12-31 --output-dir output/ci
+        shell: bash
+
+      - name: Verify smoke-test outputs
+        run: |
+          test -f output/ci/REPORT.md || (echo "REPORT.md missing" && exit 1)
+          test -f output/ci/equity_curve.png || (echo "equity_curve.png missing" && exit 1)
+          test -f output/ci/summary_statistics.csv || (echo "summary_statistics.csv missing" && exit 1)
+          echo "Smoke test outputs verified."
+        shell: bash
