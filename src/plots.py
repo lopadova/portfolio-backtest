@@ -237,7 +237,10 @@ def plot_crisis_zoom(returns_dict: Dict[str, pd.Series], path: Path):
         ax.grid(True, alpha=0.25)
         ax.tick_params(axis="x", rotation=30, labelsize=8)
         ax.xaxis.set_major_locator(mdates.AutoDateLocator())
-    axes[0].legend(loc="lower left", fontsize=8)
+    # Only emit a legend on the first axis if there's at least one plotted line
+    handles, labels = axes[0].get_legend_handles_labels()
+    if handles:
+        axes[0].legend(loc="lower left", fontsize=8)
     fig.suptitle("Crisis zoom — portfolio behavior in major stress events", fontsize=13, fontweight="bold", y=1.0)
     _save(fig, path)
 

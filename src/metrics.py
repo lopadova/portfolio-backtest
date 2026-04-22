@@ -42,7 +42,9 @@ def sharpe_ratio(returns: pd.Series, risk_free_rate: float = 0.0) -> float:
     excess = returns - monthly_rf
     mu = excess.mean() * MONTHS_PER_YEAR
     sigma = excess.std() * np.sqrt(MONTHS_PER_YEAR)
-    return float(mu / sigma) if sigma > 0 else float("nan")
+    # Guard against floating-point noise: pandas .std() on a constant series
+    # can return ~1e-18 instead of 0. Treat < 1e-12 as undefined.
+    return float(mu / sigma) if sigma > 1e-12 else float("nan")
 
 
 def sortino_ratio(returns: pd.Series, risk_free_rate: float = 0.0) -> float:
@@ -51,8 +53,10 @@ def sortino_ratio(returns: pd.Series, risk_free_rate: float = 0.0) -> float:
     excess = returns - monthly_rf
     downside = excess[excess < 0]
     mu = excess.mean() * MONTHS_PER_YEAR
-    sigma_down = downside.std() * np.sqrt(MONTHS_PER_YEAR) if len(downside) > 0 else float("nan")
-    return float(mu / sigma_down) if sigma_down > 0 else float("nan")
+    if len(downside) == 0:
+        return float("nan")
+    sigma_down = downside.std() * np.sqrt(MONTHS_PER_YEAR)
+    return float(mu / sigma_down) if sigma_down > 1e-12 else float("nan")
 
 
 def max_drawdown(returns: pd.Series) -> float:

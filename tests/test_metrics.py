@@ -66,7 +66,7 @@ class TestCAGR:
 
     def test_cagr_negative(self):
         """All -1% monthly → CAGR negative"""
-        dates = pd.date_range("2020-01-31", periods=12, freq="M")
+        dates = pd.date_range("2020-01-31", periods=12, freq="ME")
         r = pd.Series([-0.01] * 12, index=dates)
         assert cagr(r) < 0
 
@@ -81,7 +81,7 @@ class TestAnnualizedVol:
 
     def test_scales_with_sqrt_12(self):
         """Monthly std of 0.02 → annualized = 0.02 * sqrt(12) ≈ 0.0693"""
-        dates = pd.date_range("2020-01-31", periods=12, freq="M")
+        dates = pd.date_range("2020-01-31", periods=12, freq="ME")
         r = pd.Series([0.02, -0.02] * 6, index=dates)
         # std(ddof=1) of [0.02,-0.02,...] = 0.02087 (with 11 dof)
         # But any non-zero std should give positive annualized vol
@@ -177,7 +177,7 @@ class TestUnderwater:
 
     def test_recovery_months_none_when_no_recovery(self):
         """Series that drops and never recovers → None."""
-        dates = pd.date_range("2020-01-31", periods=6, freq="M")
+        dates = pd.date_range("2020-01-31", periods=6, freq="ME")
         r = pd.Series([0.10, -0.50, -0.05, -0.02, 0.01, 0.01], index=dates)
         assert recovery_months_after_max_dd(r) is None
 

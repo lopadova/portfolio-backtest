@@ -30,7 +30,7 @@ class TestSimulatePortfolio:
     def synthetic_returns(self):
         """Build a DataFrame with all sleeve columns, realistic random returns."""
         rng = np.random.default_rng(123)
-        dates = pd.date_range("2020-01-31", periods=60, freq="M")
+        dates = pd.date_range("2020-01-31", periods=60, freq="ME")
         targets = build_target_weights()
         sleeves = list(targets.keys())
         data = {
@@ -74,7 +74,7 @@ class TestSimulatePortfolio:
 class TestSimulateBenchmark:
     @pytest.fixture
     def synthetic_bench_data(self):
-        dates = pd.date_range("2020-01-31", periods=36, freq="M")
+        dates = pd.date_range("2020-01-31", periods=36, freq="ME")
         rng = np.random.default_rng(7)
         return pd.DataFrame({
             "msci_world_tr_monthly": rng.normal(0.007, 0.04, 36),

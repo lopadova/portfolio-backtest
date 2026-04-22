@@ -65,8 +65,9 @@ def _read_monthly(filename: str) -> pd.Series:
     # Accept either `value` or `close` column
     value_col = "value" if "value" in df.columns else "close"
     s = df.set_index("date")[value_col].sort_index()
-    # Ensure end-of-month alignment
-    s.index = s.index.to_period("M").to_timestamp("M")
+    # Ensure end-of-month alignment (period "M" is still a valid PERIOD alias,
+    # but to_timestamp needs "ME" on pandas 2.2+; using how="end" is version-safe)
+    s.index = s.index.to_period("M").to_timestamp(how="end").normalize()
     return s
 
 
@@ -120,7 +121,7 @@ def load_data(synthetic: bool = False) -> DataBundle:
     if eurusd_daily.median() > 1.0:
         # Data is USD per 1 EUR; invert
         eurusd_daily = 1.0 / eurusd_daily
-    eurusd_monthly = eurusd_daily.resample("M").last()
+    eurusd_monthly = eurusd_daily.resample("ME").last()
 
     # --- Daily series for options overlay ---
     spy_daily = _read_daily("spy_daily")
@@ -138,7 +139,7 @@ def load_data(synthetic: bool = False) -> DataBundle:
         if sleeve == "btc":
             # BTC is daily; resample to monthly end
             btc_daily = _read_daily(filename)
-            sleeve_levels[sleeve] = btc_daily.resample("M").last()
+            sleeve_levels[sleeve] = btc_daily.resample("ME").last()
         else:
             sleeve_levels[sleeve] = _read_monthly(filename)
 
@@ -210,7 +211,7 @@ def _generate_synthetic_bundle() -> DataBundle:
     without needing real data. NOT FOR REAL ANALYSIS.
     """
     np.random.seed(42)
-    dates_monthly = pd.date_range("2023-01-31", "2024-12-31", freq="M")
+    dates_monthly = pd.date_range("2023-01-31", "2024-12-31", freq="ME")
     dates_daily = pd.date_range("2023-01-02", "2024-12-31", freq="B")
 
     # Generate random-walk returns for each sleeve, plausible but fake

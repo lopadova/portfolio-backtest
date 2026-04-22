@@ -240,7 +240,7 @@ def run_monte_carlo(returns_dict: Dict[str, pd.Series], args, output_dir: Path):
     pd.DataFrame([stats.__dict__]).to_csv(output_dir / "monte_carlo_stats.csv", index=False)
 
     # Charts
-    dates = pd.date_range(returns.index[-1], periods=n_months + 1, freq="M")
+    dates = pd.date_range(returns.index[-1], periods=n_months + 1, freq="ME")
     print("  - monte_carlo_fan.png")
     plot_monte_carlo_fan(wealth_paths, dates, output_dir / "monte_carlo_fan.png", start_nav=args.nav)
     print("  - monte_carlo_distribution.png")

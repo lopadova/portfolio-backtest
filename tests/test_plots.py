@@ -78,7 +78,7 @@ class TestChartSmoke:
     def test_correlation_heatmap(self, tmp_output_dir):
         import numpy as np
         rng = np.random.default_rng(42)
-        dates = pd.date_range("2020-01-31", periods=60, freq="M")
+        dates = pd.date_range("2020-01-31", periods=60, freq="ME")
         df = pd.DataFrame({
             "gold": rng.normal(0.005, 0.03, 60),
             "equity": rng.normal(0.008, 0.04, 60),

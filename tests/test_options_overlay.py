@@ -109,7 +109,7 @@ class TestSimulatorSmoke:
     def fake_market_data(self):
         """Minimal fake data for a 12-month overlay run."""
         daily_idx = pd.date_range("2023-01-03", "2023-12-29", freq="B")
-        monthly_idx = pd.date_range("2023-01-31", "2023-12-31", freq="M")
+        monthly_idx = pd.date_range("2023-01-31", "2023-12-31", freq="ME")
 
         # Flat market
         spy = pd.Series(400.0, index=daily_idx)

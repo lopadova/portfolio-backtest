@@ -20,7 +20,7 @@ def deterministic_monthly_returns() -> pd.Series:
     A 12-month return series of constant +1% — useful for CAGR / Sharpe
     sanity checks where the answer is analytically known.
     """
-    dates = pd.date_range("2020-01-31", periods=12, freq="M")
+    dates = pd.date_range("2020-01-31", periods=12, freq="ME")
     return pd.Series([0.01] * 12, index=dates)
 
 
@@ -30,7 +30,7 @@ def drawdown_recovery_returns() -> pd.Series:
     A series that rises, then drops 50%, then fully recovers over 6 months.
     Used for Max DD / underwater / recovery tests.
     """
-    dates = pd.date_range("2020-01-31", periods=15, freq="M")
+    dates = pd.date_range("2020-01-31", periods=15, freq="ME")
     # +10% each for 3 months, then -50% once, then recover by +19.05% × 6
     returns = [0.10, 0.10, 0.10, -0.50] + [0.19005] * 6 + [0.0] * 5
     # Trim to 15 items
@@ -40,7 +40,7 @@ def drawdown_recovery_returns() -> pd.Series:
 @pytest.fixture
 def zero_returns() -> pd.Series:
     """All-zero return series (flat portfolio)."""
-    dates = pd.date_range("2020-01-31", periods=24, freq="M")
+    dates = pd.date_range("2020-01-31", periods=24, freq="ME")
     return pd.Series([0.0] * 24, index=dates)
 
 
@@ -48,7 +48,7 @@ def zero_returns() -> pd.Series:
 def realistic_monthly_returns() -> pd.Series:
     """A 10-year series of random-walk monthly returns, seeded for determinism."""
     rng = np.random.default_rng(42)
-    dates = pd.date_range("2015-01-31", periods=120, freq="M")
+    dates = pd.date_range("2015-01-31", periods=120, freq="ME")
     returns = rng.normal(0.006, 0.035, 120)
     return pd.Series(returns, index=dates)
 

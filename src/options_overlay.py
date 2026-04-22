@@ -223,11 +223,11 @@ def simulate_options_overlay(
                 pnl_by_day.loc[today] -= n_contracts * premium_per_contract_cash  # outflow
 
     # Monthly aggregation — convert to NAV-relative return
-    monthly_pnl = pnl_by_day.resample("M").sum()
+    monthly_pnl = pnl_by_day.resample("ME").sum()
     # Align to nav_series index
     monthly_pnl = monthly_pnl.reindex(nav_series.index).fillna(0.0)
     # Return as fraction of beginning-of-month NAV (shift NAV by 1)
-    nav_shifted = nav_series.shift(1).fillna(method="bfill")
+    nav_shifted = nav_series.shift(1).bfill()
     monthly_return = monthly_pnl / nav_shifted.replace(0.0, np.nan)
     return monthly_return.fillna(0.0)
 
