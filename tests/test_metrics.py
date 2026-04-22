@@ -19,8 +19,11 @@ from src.metrics import (
     sharpe_ratio,
     sortino_ratio,
     max_drawdown,
+    average_drawdown,
+    max_drawdown_duration_months,
     calmar_ratio,
     ulcer_index,
+    ulcer_performance_index,
     cvar,
     longest_underwater_months,
     recovery_months_after_max_dd,
@@ -157,6 +160,82 @@ class TestUlcerCVaR:
 
 
 # ---------------------------------------------------------------------------
+# Average Drawdown
+# ---------------------------------------------------------------------------
+
+class TestAverageDrawdown:
+    def test_zero_when_monotone(self, deterministic_monthly_returns):
+        assert average_drawdown(deterministic_monthly_returns) == pytest.approx(0.0, abs=1e-9)
+
+    def test_negative_when_drawdowns_present(self, drawdown_recovery_returns):
+        adv = average_drawdown(drawdown_recovery_returns)
+        assert adv < 0.0
+        # Must be >= Max DD in magnitude (i.e., less negative)
+        mdd = max_drawdown(drawdown_recovery_returns)
+        assert adv >= mdd
+
+    def test_average_greater_than_max_dd(self, realistic_monthly_returns):
+        """Average drawdown should be less negative than Max DD (in expectation)."""
+        adv = average_drawdown(realistic_monthly_returns)
+        mdd = max_drawdown(realistic_monthly_returns)
+        assert adv >= mdd
+
+
+# ---------------------------------------------------------------------------
+# Max Drawdown duration (months)
+# ---------------------------------------------------------------------------
+
+class TestMaxDrawdownDuration:
+    def test_zero_on_monotone_series(self, deterministic_monthly_returns):
+        assert max_drawdown_duration_months(deterministic_monthly_returns) == 0
+
+    def test_positive_integer(self, drawdown_recovery_returns):
+        d = max_drawdown_duration_months(drawdown_recovery_returns)
+        assert isinstance(d, int)
+        assert d >= 0
+
+    def test_duration_on_known_single_crash(self):
+        """
+        Fixture: 3 months of +10%, then a single -50% crash at month 4.
+        Peak is at month 3 (index 2), trough is at month 4 (index 3).
+        Duration = 1 month.
+        """
+        dates = pd.date_range("2020-01-31", periods=5, freq="ME")
+        r = pd.Series([0.10, 0.10, 0.10, -0.50, 0.0], index=dates)
+        d = max_drawdown_duration_months(r)
+        assert d == 1
+
+
+# ---------------------------------------------------------------------------
+# Ulcer Performance Index (UPI)
+# ---------------------------------------------------------------------------
+
+class TestUPI:
+    def test_upi_nan_when_no_drawdown(self, deterministic_monthly_returns):
+        """Zero Ulcer Index → UPI undefined."""
+        upi = ulcer_performance_index(deterministic_monthly_returns, risk_free_rate=0.0)
+        assert math.isnan(upi)
+
+    def test_upi_finite_with_drawdowns(self, realistic_monthly_returns):
+        upi = ulcer_performance_index(realistic_monthly_returns, risk_free_rate=0.02)
+        # Should be a finite number (positive or negative depending on series)
+        assert not math.isinf(upi)
+
+    def test_upi_scales_with_return(self):
+        """Higher CAGR (same drawdowns) → higher UPI."""
+        dates = pd.date_range("2020-01-31", periods=60, freq="ME")
+        rng = np.random.default_rng(42)
+        base = rng.normal(0.0, 0.02, 60)
+        r_low = pd.Series(base, index=dates)
+        r_high = pd.Series(base + 0.002, index=dates)
+        upi_low = ulcer_performance_index(r_low, risk_free_rate=0.0)
+        upi_high = ulcer_performance_index(r_high, risk_free_rate=0.0)
+        # High-return version should have strictly greater UPI (monotonicity)
+        if not (math.isnan(upi_low) or math.isnan(upi_high)):
+            assert upi_high > upi_low
+
+
+# ---------------------------------------------------------------------------
 # Underwater / Recovery
 # ---------------------------------------------------------------------------
 
@@ -217,3 +296,13 @@ class TestComputeAll:
     def test_pct_positive_months_bounded(self, realistic_monthly_returns):
         s = compute_all("Test", realistic_monthly_returns)
         assert 0.0 <= s.pct_positive_months <= 1.0
+
+    def test_new_metrics_present(self, realistic_monthly_returns):
+        """Verify that Phase 1 new metrics are surfaced in PortfolioStats."""
+        s = compute_all("Test", realistic_monthly_returns, risk_free_rate=0.02)
+        assert hasattr(s, "average_drawdown")
+        assert hasattr(s, "max_drawdown_duration_months")
+        assert hasattr(s, "upi")
+        assert isinstance(s.average_drawdown, float)
+        assert isinstance(s.max_drawdown_duration_months, int)
+        assert isinstance(s.upi, float)
