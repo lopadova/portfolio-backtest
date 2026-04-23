@@ -42,8 +42,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ merged to main · 📤 pushed
 | 7 | Italian tax modeling (26% CGT + 4y carry) | `feat/phase-7-tax-it` | ✅ | Merged — PR #8 (incl. Copilot fixes, 207 tests) |
 | 8 | FIRE calculator (2-phase + Italian mortality tables + pension) | `feat/phase-8-fire` | ✅ | Merged — PR #9 (incl. Copilot fixes on 5 bugs, 231 tests) |
 | 9 | AI analysis (OpenAI/Anthropic/OpenRouter/Local, default=OpenRouter) | `feat/phase-9-ai-analysis` | ✅ | Merged — PR #10 (incl. Copilot fixes, 255 tests) |
-| 10 | Streamlit dashboard (form + run + save + deploy config for Cloud/HF) | `feat/phase-10-dashboard` | 📤 | Pushed — rebased on main |
-| 11 | README + CI polish + final integration | `feat/phase-11-docs-ci` | ⬜ | Branch from phase-10 |
+| 10 | Streamlit dashboard (form + run + save + deploy config for Cloud/HF) | `feat/phase-10-dashboard` | ✅ | Merged — PR #11 (incl. Copilot fixes on cash bug + tempdir leak, 267 tests) |
+| 11 | README + CI polish + final integration | `feat/phase-11-docs-ci` | 📤 | **PR #12** open — community-ready README rewrite (TL;DR, CLI reference, deploy guide), CI artifact upload, 267 tests |
 
 ---
 
