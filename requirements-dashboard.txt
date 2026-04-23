@@ -1,0 +1,8 @@
+# Streamlit dashboard dependencies
+# Install: pip install -r requirements-dashboard.txt
+# Run:     streamlit run streamlit_app.py
+
+-r requirements.txt
+
+streamlit>=1.35
+plotly>=5.20          # optional — richer interactive charts (fallback to matplotlib)
