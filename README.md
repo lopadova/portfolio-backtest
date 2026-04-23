@@ -4,11 +4,11 @@
 [![Python: 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Tests](https://img.shields.io/github/actions/workflow/status/padosoft/four-umbrellas-backtest/tests.yml?branch=main&label=tests)](https://github.com/padosoft/four-umbrellas-backtest/actions/workflows/tests.yml)
 [![Tests](https://img.shields.io/badge/tests-267%20passing-brightgreen.svg)](#testing)
-[![Status: v2.0](https://img.shields.io/badge/Status-v2.0-success.svg)](#whats-new-in-v20)
-[![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-FF4B4B.svg)](#running-the-interactive-dashboard-locally)
-[![HuggingFace](https://img.shields.io/badge/Deploy-HF%20Spaces-yellow.svg)](#deploy-to-huggingface-spaces)
-[![FIRE](https://img.shields.io/badge/%F0%9F%94%A5-FIRE%20calculator-orange.svg)](#-fire-calculator-plan-your-retirement)
-[![AI Analysis](https://img.shields.io/badge/AI-OpenRouter%20%7C%20OpenAI%20%7C%20Anthropic%20%7C%20Local-blueviolet.svg)](#-ai-analysis-llm-driven-qualitative-review)
+[![Status: v2.0](https://img.shields.io/badge/Status-v2.0-success.svg)](#whats-new)
+[![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-FF4B4B.svg)](#dashboard-local)
+[![HuggingFace](https://img.shields.io/badge/Deploy-HF%20Spaces-yellow.svg)](#deploy-public)
+[![FIRE](https://img.shields.io/badge/%F0%9F%94%A5-FIRE%20calculator-orange.svg)](#fire)
+[![AI Analysis](https://img.shields.io/badge/AI-OpenRouter%20%7C%20OpenAI%20%7C%20Anthropic%20%7C%20Local-blueviolet.svg)](#ai)
 [![Article](https://img.shields.io/badge/Medium-Read%20the%20article-black.svg)](https://medium.com/@padosoft)
 
 > **The open-source, fund-manager-grade toolkit for backtesting a multi-asset portfolio over 20 years, stress-testing it with Monte Carlo + rolling windows + Markowitz frontier + Italian tax + FIRE projection, and getting an LLM to review the results — either from the CLI or through a beautiful Streamlit dashboard you can deploy in one click.**
@@ -19,6 +19,7 @@ This codebase is the open-source companion to the Medium article [*"The Four Umb
 
 ---
 
+<a id="tldr"></a>
 ## ⚡ TL;DR — try it in 30 seconds
 
 ```bash
@@ -44,20 +45,20 @@ export OPENROUTER_API_KEY="sk-or-..."
 python backtest.py && python analyze.py --results output/
 ```
 
-Jump to: [**CLI reference**](#-cli-reference-everything-you-can-do-from-the-terminal) · [**GUI launch**](#running-the-interactive-dashboard-locally) · [**FIRE**](#-fire-calculator-plan-your-retirement) · [**AI**](#-ai-analysis-llm-driven-qualitative-review) · [**Deploy to Cloud/HF**](#deploy-the-dashboard-publicly)
+Jump to: [**CLI reference**](#cli) · [**GUI launch**](#dashboard-local) · [**FIRE**](#fire) · [**AI**](#ai) · [**Deploy to Cloud/HF**](#deploy-public)
 
 ---
 
 ## Table of contents
 
-- [⚡ TL;DR — try it in 30 seconds](#-tldr--try-it-in-30-seconds)
-- [What's new in v2.0 🚀](#whats-new-in-v20-)
-- [🌟 Why you'll actually enjoy using this](#-why-youll-actually-enjoy-using-this)
-- [📋 CLI reference — everything you can do from the terminal](#-cli-reference-everything-you-can-do-from-the-terminal)
-- [🖥️ Running the interactive dashboard locally](#running-the-interactive-dashboard-locally)
-- [🚀 Deploy the dashboard publicly](#deploy-the-dashboard-publicly)
-- [🔥 FIRE calculator — plan your retirement](#-fire-calculator-plan-your-retirement)
-- [🤖 AI analysis — LLM-driven qualitative review](#-ai-analysis-llm-driven-qualitative-review)
+- [⚡ TL;DR — try it in 30 seconds](#tldr)
+- [What's new in v2.0 🚀](#whats-new)
+- [🌟 Why you'll actually enjoy using this](#why)
+- [📋 CLI reference — everything you can do from the terminal](#cli)
+- [🖥️ Running the interactive dashboard locally](#dashboard-local)
+- [🚀 Deploy the dashboard publicly](#deploy-public)
+- [🔥 FIRE calculator — plan your retirement](#fire)
+- [🤖 AI analysis — LLM-driven qualitative review](#ai)
 - [Advanced analyses (sensitivity, rolling window, frontier)](#advanced-analyses)
 - [What this is](#what-this-is)
 - [Features](#features)
@@ -77,6 +78,7 @@ Jump to: [**CLI reference**](#-cli-reference-everything-you-can-do-from-the-term
 
 ---
 
+<a id="cli"></a>
 ## 📋 CLI reference — everything you can do from the terminal
 
 The toolkit exposes three top-level commands, each fully `--help`-able. This table lists the most useful flags; run `python <command>.py --help` for the complete list.
@@ -90,14 +92,15 @@ The toolkit exposes three top-level commands, each fully `--help`-able. This tab
 | `--nav AMOUNT` | Starting NAV in EUR (default 100 000) | `--nav 250000` |
 | `--synthetic` | Use random-walk data (no real files needed) | `python backtest.py --synthetic` |
 | `--no-options` | Disable the semi-annual put-spread overlay | `python backtest.py --no-options` |
-| `--monte-carlo` | Run block-bootstrap Monte Carlo | `python backtest.py --monte-carlo --mc-paths 10000 --mc-years 20` |
-| `--mc-scenarios` | Emit **Prudente / Mediana / Ottimista** table (NEW v2) | `python backtest.py --monte-carlo --mc-scenarios` |
+| `--monte-carlo` | Run block-bootstrap Monte Carlo — auto-includes **Prudente / Mediana / Ottimista (10°/50°/90°)** scenarios table + chart (NEW v2) | `python backtest.py --monte-carlo --mc-paths 10000 --mc-years 20` |
+| `--mc-paths N` · `--mc-years Y` · `--mc-block-size M` | Tune MC (defaults: 5000 paths, auto horizon, 3-month blocks) | `--mc-paths 20000 --mc-years 30 --mc-block-size 3` |
 | `--sensitivity PARAM --range LO HI --step S` | Sweep a parameter | `--sensitivity gold --range 0.10 0.25 --step 0.025` |
 | `--sensitivity PARAM --values V1 V2 ...` | Sweep specific values | `--sensitivity rebalance_freq --values 1 2 4 12` |
 | `--rolling-window --window-years N --step-months M` | Rolling-window stress test | `--rolling-window --window-years 10 --step-months 1` |
 | `--efficient-frontier --n-random N` | Markowitz + Dirichlet sampling | `--efficient-frontier --n-random 50000` |
-| `--tax` | Apply 26% Italian CGT with 4y *minusvalenze* carry (NEW v2) | `python backtest.py --tax` |
 | `--output-dir DIR` | Where to write outputs (default `output/`) | `--output-dir output/custom-run` |
+
+> **Tax modeling** is available programmatically via `src/tax.py` (`TaxLedger`, `TaxConfig` — 26% CGT with 4-year *minusvalenze* FIFO carry, 12.5% gov-bond rate). Wiring it behind a `--tax` CLI flag is on the [roadmap](#roadmap); for now, `import` it from your own script or test to apply tax drag on realized rebalance flows.
 
 ### `fire.py` — FIRE / retirement planner (NEW v2)
 
@@ -136,6 +139,7 @@ See [Running the interactive dashboard locally](#running-the-interactive-dashboa
 
 ---
 
+<a id="whats-new"></a>
 ## What's new in v2.0 🚀
 
 A massive feature rollout delivered in **11 reviewed-and-merged PRs** on top of the 1.0 baseline, **267 tests passing** across the matrix:
@@ -158,6 +162,7 @@ A massive feature rollout delivered in **11 reviewed-and-merged PRs** on top of 
 
 ---
 
+<a id="why"></a>
 ## 🌟 Why you'll actually enjoy using this
 
 Most "portfolio backtesters" on the web are either (a) black-box web tools where you cannot see the methodology, (b) deep quant libraries (backtrader, vectorbt) with a steep learning curve for a single-portfolio study, or (c) academic code dumps that require significant rewiring to fit a custom allocation.
@@ -349,6 +354,7 @@ If `REPORT.md` opens and shows all 13 charts inline, the pipeline works. Now you
 
 ---
 
+<a id="dashboard-local"></a>
 ## Running the interactive dashboard locally
 
 The Streamlit dashboard gives you a **full interactive UI** with sliders, checkboxes, portfolio selection, tabbed charts, AI analysis button, and a "Save to output/" checkbox. No CLI needed.
@@ -382,6 +388,7 @@ Opens automatically at [http://localhost:8501](http://localhost:8501) in your de
 
 ---
 
+<a id="deploy-public"></a>
 ## 🚀 Deploy the dashboard publicly
 
 Three deploy targets ship pre-configured. Pick your favorite.
@@ -415,6 +422,7 @@ The `Dockerfile` is tuned for HuggingFace Spaces (port 7860) but works anywhere 
 
 ---
 
+<a id="fire"></a>
 ## 🔥 FIRE calculator — plan your retirement
 
 Standalone FIRE (Financial Independence, Retire Early) Monte Carlo simulator with **Italian mortality tables** (ISTAT 2023) and INPS-style pension revaluation.
@@ -458,6 +466,7 @@ Four dedicated charts + statistics panel:
 
 ---
 
+<a id="ai"></a>
 ## 🤖 AI analysis — LLM-driven qualitative review
 
 Send backtest results to an LLM for qualitative analysis (punti di forza, debolezze, raccomandazioni con numeri specifici, caveat metodologici, verdetto finale).
@@ -978,6 +987,7 @@ Metrics++ · MC scenarios · extra benchmarks · sensitivity sweep · rolling-wi
 
 **🛣 Next up — contributions welcome:**
 
+- [ ] **`--tax` CLI flag** — wire the existing `TaxLedger` / `TaxConfig` (already in `src/tax.py`, fully tested) to `backtest.py` so tax drag is a one-flag opt-in
 - [ ] **Higher-fidelity options pricing** — optional CBOE DataShop integration (user provides API key)
 - [ ] **Factor attribution** — Fama-French 5 + Momentum attribution per sleeve
 - [ ] **Tax lot optimization** — HIFO / specific-lot selection instead of FIFO for CGT minimization
