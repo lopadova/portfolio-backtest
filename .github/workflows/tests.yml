@@ -33,8 +33,28 @@ jobs:
       - name: Run test suite
         run: pytest --tb=short
 
-      - name: Run synthetic-data smoke test
-        run: python backtest.py --synthetic --start 2023-01-31 --end 2024-12-31 --output-dir output/ci
+      - name: Run synthetic-data smoke test (full 20y)
+        run: python backtest.py --synthetic --output-dir output/ci
+        shell: bash
+
+      - name: Run synthetic-data Monte Carlo smoke
+        run: python backtest.py --synthetic --monte-carlo --mc-paths 500 --mc-years 10 --output-dir output/ci-mc
+        shell: bash
+
+      - name: Run sensitivity sweep smoke
+        run: python backtest.py --synthetic --sensitivity gold --values 0.15 0.20 --output-dir output/ci-sens
+        shell: bash
+
+      - name: Run rolling-window smoke
+        run: python backtest.py --synthetic --rolling-window --window-years 5 --step-months 12 --output-dir output/ci-roll
+        shell: bash
+
+      - name: Run efficient-frontier smoke
+        run: python backtest.py --synthetic --efficient-frontier --n-random 1000 --output-dir output/ci-ef
+        shell: bash
+
+      - name: Run FIRE smoke
+        run: python fire.py --synthetic --age 45 --capital 100000 --contributions 500 --fire-age 60 --spending 2000 --simulations 50 --output-dir output/ci-fire
         shell: bash
 
       - name: Verify smoke-test outputs
@@ -42,5 +62,18 @@ jobs:
           test -f output/ci/REPORT.md || (echo "REPORT.md missing" && exit 1)
           test -f output/ci/equity_curve.png || (echo "equity_curve.png missing" && exit 1)
           test -f output/ci/summary_statistics.csv || (echo "summary_statistics.csv missing" && exit 1)
-          echo "Smoke test outputs verified."
+          test -f output/ci-mc/monte_carlo_scenarios.png || (echo "MC scenarios chart missing" && exit 1)
+          test -f output/ci-sens/sensitivity/gold.png || (echo "Sensitivity chart missing" && exit 1)
+          test -f output/ci-roll/rolling_window/rolling_5y.png || (echo "Rolling window chart missing" && exit 1)
+          test -f output/ci-ef/efficient_frontier/efficient_frontier.png || (echo "Efficient frontier chart missing" && exit 1)
+          test -f output/ci-fire/fire_projection.png || (echo "FIRE projection chart missing" && exit 1)
+          echo "All smoke test outputs verified."
         shell: bash
+
+      - name: Upload output artifacts for manual inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-outputs-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: output/
+          retention-days: 7
