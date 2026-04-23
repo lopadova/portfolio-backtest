@@ -34,8 +34,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ merged to main · 📤 pushed
 | # | Phase | Branch | Status | Commit / Notes |
 |---|---|---|---|---|
 | 1 | Metrics++ (Avg DD, DD duration, UPI) | `feat/phase-1-metrics` | ✅ | Merged — PR #1 (incl. Copilot fixes, 126 tests) |
-| 2 | MC scenarios (Prudente/Mediana/Ottimista, N-years flag) | `feat/phase-2-mc-scenarios` | 📤 | Pushed — rebased on main — 131 tests |
-| 3 | Additional benchmarks (Golden Butterfly, Permanent, Swensen, Dalio AW official) | `feat/phase-3-benchmarks` | ⬜ | Branch from phase-2 |
+| 2 | MC scenarios (Prudente/Mediana/Ottimista, N-years flag) | `feat/phase-2-mc-scenarios` | ✅ | Merged — PR #2 (incl. Copilot fixes, 133 tests) |
+| 3 | Additional benchmarks (Golden Butterfly, Permanent, Swensen, Dalio AW official) | `feat/phase-3-benchmarks` | 📤 | Pushed — rebased on main |
 | 4 | Programmatic sensitivity sweep | `feat/phase-4-sensitivity` | ⬜ | Branch from phase-3 |
 | 5 | Rolling-window backtest | `feat/phase-5-rolling-window` | ⬜ | Branch from phase-4 |
 | 6 | Efficient Frontier (Markowitz + 50k random) | `feat/phase-6-efficient-frontier` | ⬜ | Branch from phase-5 |

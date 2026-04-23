@@ -205,3 +205,59 @@ class TestBenchmarks:
     def test_expected_benchmarks_present(self):
         required = {"60/40", "100% S&P 500 TR EUR", "100% SWDA (MSCI World EUR)", "All-Weather proxy"}
         assert required.issubset(BENCHMARKS.keys())
+
+    # Phase 3: classical allocator benchmarks
+    def test_golden_butterfly_present(self):
+        assert "Golden Butterfly (Tyler)" in BENCHMARKS
+        gb = BENCHMARKS["Golden Butterfly (Tyler)"]
+        assert all(abs(w - 0.20) < 1e-9 for w in gb.values())
+        assert len(gb) == 5
+
+    def test_permanent_portfolio_present(self):
+        assert "Harry Browne Permanent Portfolio" in BENCHMARKS
+        pp = BENCHMARKS["Harry Browne Permanent Portfolio"]
+        assert all(abs(w - 0.25) < 1e-9 for w in pp.values())
+        assert len(pp) == 4
+
+    def test_dalio_official_present(self):
+        assert "Dalio All-Weather (official)" in BENCHMARKS
+        aw = BENCHMARKS["Dalio All-Weather (official)"]
+        assert abs(aw["msci_world_tr_monthly"] - 0.30) < 1e-9
+        assert abs(aw["iboxx_eurgov_7_10y_monthly"] - 0.40) < 1e-9
+
+    def test_swensen_lazy_present(self):
+        assert "Swensen Lazy" in BENCHMARKS
+        sw = BENCHMARKS["Swensen Lazy"]
+        assert abs(sw["sp500_tr_monthly"] - 0.30) < 1e-9
+        assert abs(sw["msci_world_ex_usa_monthly"] - 0.15) < 1e-9
+        assert abs(sw["msci_emerging_tr_monthly"] - 0.05) < 1e-9
+
+
+class TestBenchmarkCoverageSkip:
+    """Phase 3: verify simulate_benchmark skips when coverage is below threshold."""
+
+    def test_skip_when_coverage_below_threshold(self):
+        from src.rebalance import simulate_benchmark
+        import pandas as pd
+        dates = pd.date_range("2020-01-31", periods=36, freq="ME")
+        df = pd.DataFrame({"msci_world_tr_monthly": [0.01] * 36}, index=dates)
+        weights = {
+            "msci_world_tr_monthly":      0.25,
+            "iboxx_eurgov_7_10y_monthly": 0.25,
+            "iboxx_eurgov_1_3y_monthly":  0.25,
+            "gold_lbma_monthly":          0.25,
+        }
+        result = simulate_benchmark(df, weights, min_coverage=0.80)
+        assert len(result) == 0
+
+    def test_run_when_coverage_above_threshold(self):
+        from src.rebalance import simulate_benchmark
+        import pandas as pd
+        dates = pd.date_range("2020-01-31", periods=36, freq="ME")
+        df = pd.DataFrame({
+            "msci_world_tr_monthly":      [0.01] * 36,
+            "iboxx_eurgov_7_10y_monthly": [0.002] * 36,
+        }, index=dates)
+        weights = {"msci_world_tr_monthly": 0.60, "iboxx_eurgov_7_10y_monthly": 0.40}
+        result = simulate_benchmark(df, weights, min_coverage=0.80)
+        assert len(result) == 36

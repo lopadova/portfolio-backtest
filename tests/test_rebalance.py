@@ -97,8 +97,16 @@ class TestSimulateBenchmark:
         assert corr > 0.99
 
     def test_benchmark_skips_missing_columns(self, synthetic_bench_data):
-        """If a benchmark references a column that doesn't exist, it should not crash."""
+        """
+        If a benchmark references a column that doesn't exist and coverage
+        falls below min_coverage (Phase 3), the benchmark is skipped (empty
+        series returned) rather than running with distorted weights.
+        Using min_coverage=0.0 keeps the old "run with what's available" behavior.
+        """
         weights = {"msci_world_tr_monthly": 0.5, "nonexistent_asset": 0.5}
-        out = simulate_benchmark(synthetic_bench_data, weights)
-        # Should still return something (using just the available column, normalized)
-        assert len(out) > 0
+        # With default min_coverage=0.80 → coverage=0.5 → skipped
+        out_skipped = simulate_benchmark(synthetic_bench_data, weights)
+        assert len(out_skipped) == 0
+        # Explicit loose coverage → runs with the available 50% re-normalized to 100%
+        out_loose = simulate_benchmark(synthetic_bench_data, weights, min_coverage=0.0)
+        assert len(out_loose) > 0

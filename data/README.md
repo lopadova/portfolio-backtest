@@ -32,6 +32,10 @@ Place every CSV listed below in `data/raw/` with **exactly the filename shown**.
 | `crypto_basket_monthly.csv` | Top-10 crypto market-cap index monthly (USD) | CoinMarketCap / CoinGecko — [CMC200](https://coinmarketcap.com/charts/cmc200/) or similar | Personal use (check current ToS) | Crypto basket (20% of crypto sleeve) |
 | `india_ftse_monthly.csv` | FTSE India TR (USD) monthly | [FTSE Russell](https://www.ftserussell.com/index/home) | FTSE licensed | EM satellite India |
 | `china_ftse_monthly.csv` | FTSE China TR (USD) monthly | [FTSE Russell](https://www.ftserussell.com/index/home) | FTSE licensed | EM satellite China |
+| `sp600_scv_tr_monthly.csv` | S&P 600 Small-Cap Value TR (USD) | [S&P Global](https://www.spglobal.com/spdji/en/indices/equity/sp-smallcap-600-value/) | S&P licensed | **Golden Butterfly benchmark** — SCV leg (optional; benchmark skipped if missing) |
+| `msci_emerging_tr_monthly.csv` | MSCI Emerging Markets Net TR (USD) | [MSCI](https://www.msci.com/end-of-day-data-search) | MSCI licensed | **Swensen Lazy benchmark** — EM slice (optional) |
+| `ftse_nareit_tr_monthly.csv` | FTSE NAREIT All Equity REITs TR (USD) | [FTSE / NAREIT](https://www.reit.com/data-research) | Licensed | **Swensen Lazy benchmark** — REITs slice (optional) |
+| `us_tips_tr_monthly.csv` | Bloomberg US TIPS TR (USD) | Bloomberg, or iShares TIPS ETF (TIP) via Yahoo as proxy | Licensed / personal | **Swensen Lazy benchmark** — TIPS slice (optional) |
 
 ## Format conventions
 
