@@ -29,7 +29,7 @@ from src.fire import (
 )
 
 
-def parse_args():
+def parse_args(argv=None):
     p = argparse.ArgumentParser(description="FIRE Monte Carlo simulator — Italian mortality tables")
 
     # Personal
@@ -45,14 +45,14 @@ def parse_args():
     # FIRE
     p.add_argument("--fire-age", type=int, required=True, help="FIRE target age")
     p.add_argument("--spending", type=float, required=True, help="Monthly spending post-FIRE (€)")
-    p.add_argument("--inflation", type=float, default=0.02, help="Annual inflation rate (default 2%)")
+    p.add_argument("--inflation", type=float, default=0.02, help="Annual inflation rate (default 2%%)")
 
     # Pension
     p.add_argument("--pension", action="store_true", help="Enable pension")
     p.add_argument("--pension-amount", type=float, default=0, help="Pension monthly amount (€, 12 months/yr)")
     p.add_argument("--pension-age", type=int, default=67, help="Pension start age")
     p.add_argument("--pension-revaluation", type=float, default=1.0,
-                   help="Pension inflation-matching coefficient (1.0 = full, 0.75 = 75%, 0 = no adjustment)")
+                   help="Pension inflation-matching coefficient (1.0 = full, 0.75 = 75%%, 0 = no adjustment)")
 
     # Tax
     p.add_argument("--tax-on-withdrawals", action="store_true", help="Apply 26%% CGT on withdrawals")
@@ -67,7 +67,7 @@ def parse_args():
     p.add_argument("--synthetic", action="store_true", help="Use synthetic portfolio data (for testing)")
     p.add_argument("--output-dir", default="output/fire")
 
-    return p.parse_args()
+    return p.parse_args(argv)
 
 
 def main():

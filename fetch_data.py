@@ -13,17 +13,26 @@ For those, this script prints explicit instructions.
 
 from __future__ import annotations
 
+import io
 import sys
 from pathlib import Path
+from urllib.request import Request, urlopen
 
 import pandas as pd
 
 try:
     import yfinance as yf
-    import pandas_datareader.data as pdr
 except ImportError:
     print("Missing dependencies. Run: pip install -r requirements.txt")
     sys.exit(1)
+
+
+# FRED publishes free CSVs at this endpoint — no API key, no paid tier, works
+# on pure stdlib (`urllib`). Previous version used `pandas_datareader`, which
+# imports `distutils.version.LooseVersion` — `distutils` was removed from the
+# Python stdlib in 3.12 and `pandas_datareader` has not been updated since
+# 2022, so it blows up at import time on 3.12+.
+FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={start}"
 
 
 DATA_RAW = Path(__file__).parent / "data" / "raw"
@@ -50,16 +59,30 @@ def save_daily_close(ticker: str, filename: str, start=START_DATE, end=END_DATE)
 
 
 def save_fred_series(series_id: str, filename: str, start=START_DATE):
-    """Download a FRED series and save as date,close CSV."""
+    """Download a FRED series as CSV and save as date,close CSV.
+    Uses FRED's public CSV endpoint (no API key). FRED marks missing values
+    with a literal "." — `pd.to_numeric(errors="coerce")` turns those into NaN
+    which we then drop."""
     print(f"  Fetching {series_id} from FRED ...")
+    url = FRED_CSV_URL.format(series_id=series_id, start=start)
     try:
-        s = pdr.DataReader(series_id, "fred", start=start)
+        req = Request(url, headers={"User-Agent": "portfolio-backtest-fetcher/1.0"})
+        with urlopen(req, timeout=30) as resp:
+            raw = resp.read().decode("utf-8")
     except Exception as e:
         print(f"    ERROR fetching {series_id}: {e}")
         return
-    df = s.reset_index()
-    df.columns = ["date", "close"]
-    df.dropna(inplace=True)
+    df = pd.read_csv(io.StringIO(raw))
+    # FRED historically used "DATE" and now uses "observation_date" — accept either.
+    date_col = next((c for c in df.columns if c.lower() in ("date", "observation_date")), None)
+    value_col = next((c for c in df.columns if c != date_col), None) if date_col else None
+    if date_col is None or value_col is None:
+        print(f"    ERROR: unexpected FRED CSV shape: {df.columns.tolist()}")
+        return
+    df = df.rename(columns={date_col: "date", value_col: "close"})
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    df = df.dropna().reset_index(drop=True)
     df.to_csv(DATA_RAW / f"{filename}.csv", index=False)
     print(f"    -> {filename}.csv ({len(df)} rows)")
 

@@ -28,7 +28,7 @@ from src.ai_analyzer import (
 )
 
 
-def parse_args():
+def parse_args(argv=None):
     p = argparse.ArgumentParser(description="AI analysis of backtest results")
     p.add_argument("--results", type=Path, default=Path("output"),
                    help="Path to the output directory containing REPORT.md")
@@ -42,7 +42,7 @@ def parse_args():
                    help="Additional context files (CSVs, Markdown)")
     p.add_argument("--output", type=Path, default=None,
                    help="Output path (default: <results>/AI_ANALYSIS.md)")
-    return p.parse_args()
+    return p.parse_args(argv)
 
 
 def main():
