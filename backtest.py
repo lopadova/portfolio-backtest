@@ -209,12 +209,15 @@ def run_monte_carlo(returns_dict: Dict[str, pd.Series], args, output_dir: Path):
     name = "Four Umbrellas" if "Four Umbrellas" in returns_dict else "Four Umbrellas (no options)"
     returns = returns_dict[name]
 
-    # Auto-detect horizon if --mc-years=0: use max years available in the returns series
-    n_years = args.mc_years
-    if n_years <= 0:
-        n_years = max(1, len(returns) // 12)
-    print(f"\nRunning Monte Carlo: {args.mc_paths:,} paths × {n_years} years, block size {args.mc_block_size}")
-    n_months = n_years * 12
+    # Auto-detect horizon if --mc-years=0: use the full available monthly
+    # history from the returns series (no integer truncation, no floor at 1Y).
+    if args.mc_years <= 0:
+        n_months = int(returns.dropna().shape[0])
+        n_years = n_months / 12.0
+    else:
+        n_years = args.mc_years
+        n_months = n_years * 12
+    print(f"\nRunning Monte Carlo: {args.mc_paths:,} paths × {n_years:.2f} years ({n_months} months), block size {args.mc_block_size}")
     simulated = block_bootstrap(
         returns, n_paths=args.mc_paths, n_periods=n_months,
         block_size=args.mc_block_size,
@@ -240,8 +243,9 @@ def run_monte_carlo(returns_dict: Dict[str, pd.Series], args, output_dir: Path):
     print(f"Median max drawdown:           {stats.median_max_drawdown:.2%}")
     print(f"Worst-5% max drawdown:         {stats.pct5_max_drawdown:.2%}")
 
-    # Save stats CSV
-    pd.DataFrame([stats.__dict__]).to_csv(output_dir / "monte_carlo_stats.csv", index=False)
+    # Save stats CSV — uses .to_dict() to flatten nested scenarios into
+    # scalar columns (avoids opaque object serialization)
+    pd.DataFrame([stats.to_dict()]).to_csv(output_dir / "monte_carlo_stats.csv", index=False)
 
     # Charts
     dates = pd.date_range(returns.index[-1], periods=n_months + 1, freq="ME")

@@ -10,7 +10,7 @@ Default block size is 3 months, a common choice in the financial literature
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -96,7 +96,52 @@ class MonteCarloStats:
     median_max_drawdown: float
     pct5_max_drawdown: float
     # Phase 2 scenarios — embedded for convenience
-    scenarios: MonteCarloScenarios = None
+    scenarios: Optional[MonteCarloScenarios] = None
+
+    def to_dict(self) -> dict:
+        """
+        Return a flat, CSV-safe representation of the Monte Carlo stats.
+
+        Nested scenario data is flattened into scalar fields so callers that
+        serialize via pandas (e.g. `backtest.py` writes MC stats to CSV) do
+        not end up with the `MonteCarloScenarios` object serialized as an
+        opaque string.
+        """
+        data = {
+            "n_paths": self.n_paths,
+            "n_years": self.n_years,
+            "median_terminal": self.median_terminal,
+            "pct5_terminal": self.pct5_terminal,
+            "pct25_terminal": self.pct25_terminal,
+            "pct75_terminal": self.pct75_terminal,
+            "pct95_terminal": self.pct95_terminal,
+            "prob_positive_real_return": self.prob_positive_real_return,
+            "prob_drawdown_gt_20pct": self.prob_drawdown_gt_20pct,
+            "prob_drawdown_gt_40pct": self.prob_drawdown_gt_40pct,
+            "median_max_drawdown": self.median_max_drawdown,
+            "pct5_max_drawdown": self.pct5_max_drawdown,
+        }
+        if self.scenarios is None:
+            data.update({
+                "scenario_n_years": None,
+                "scenario_prudente_wealth": None,
+                "scenario_mediana_wealth": None,
+                "scenario_ottimista_wealth": None,
+                "scenario_prudente_cagr": None,
+                "scenario_mediana_cagr": None,
+                "scenario_ottimista_cagr": None,
+            })
+        else:
+            data.update({
+                "scenario_n_years": self.scenarios.n_years,
+                "scenario_prudente_wealth": self.scenarios.prudente_wealth,
+                "scenario_mediana_wealth": self.scenarios.mediana_wealth,
+                "scenario_ottimista_wealth": self.scenarios.ottimista_wealth,
+                "scenario_prudente_cagr": self.scenarios.prudente_cagr,
+                "scenario_mediana_cagr": self.scenarios.mediana_cagr,
+                "scenario_ottimista_cagr": self.scenarios.ottimista_cagr,
+            })
+        return data
 
 
 def _wealth_to_cagr(wealth_multiplier: float, n_years: float) -> float:

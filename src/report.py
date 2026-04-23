@@ -244,10 +244,12 @@ def generate_markdown_report(
             lines.append(f"Block size: {mc_config['block_size']} months "
                          f"(preserves short-term autocorrelation of returns).")
         lines.append("")
-        lines.append("### Scenari espliciti — Prudente / Mediana / Ottimista")
-        lines.append("")
+        # Only emit the "Scenari espliciti" subsection when scenarios exist —
+        # avoids a blank section in backward-compat / partial MC runs.
         if getattr(monte_carlo_stats, "scenarios", None) is not None:
             sc = monte_carlo_stats.scenarios
+            lines.append("### Scenari espliciti — Prudente / Mediana / Ottimista")
+            lines.append("")
             lines.append("![Monte Carlo scenarios](monte_carlo_scenarios.png)")
             lines.append("")
             lines.append("| Scenario | Percentile | Terminal wealth | Implied CAGR |")
