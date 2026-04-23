@@ -2,7 +2,7 @@
 
 **Purpose**: crash-safe progress tracking for a multi-phase feature implementation. If the session dies, a new agent reads this file and picks up from the first ⬜ (or 🟡 in-progress) phase.
 
-**Project path**: `C:\Users\lopad\Documents\DocLore\Visual Basic\python\portfolio-backtest`
+**Project path**: `<repo-root>` (the directory where this repo is cloned — substitute your own path)
 
 **Remote**: `git@github.com:lopadova/portfolio-backtest.git`
 
@@ -51,7 +51,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ merged to main · 📤 pushed
 
 If this file is being read because the previous session crashed:
 
-1. `cd "C:\Users\lopad\Documents\DocLore\Visual Basic\python\portfolio-backtest"`
+1. `cd <repo-root>` (for example, `cd portfolio-backtest`)
 2. Identify the first 🟡 or ⬜ phase in the table above.
 3. `git checkout <branch-name>` (or create it from the previous phase's branch if it doesn't exist yet)
 4. `git status` to see uncommitted work — resume that first if any
@@ -77,7 +77,7 @@ If this file is being read because the previous session crashed:
 - `output/REPORT.md` summary table includes Avg DD, DD Duration, UPI columns
 - `output/summary_statistics.csv` includes same columns
 
-**Current status**: Core metrics.py done; need to update report.py + write tests.
+**Current status**: complete — metrics.py, report.py, and tests all done; acceptance criteria met (124 tests passing including 10 new).
 
 ---
 

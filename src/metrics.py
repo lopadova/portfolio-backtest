@@ -134,15 +134,19 @@ def max_drawdown_duration_months(returns: pd.Series) -> int:
     running_max = wealth.cummax()
     drawdown = (wealth - running_max) / running_max
     trough_idx = drawdown.idxmin()
-    # Find the peak that preceded the trough (last time running_max increased before trough)
+    # Find the peak *immediately* preceding the worst trough: the LAST time
+    # the drawdown returned to 0 (wealth == running_max) before the trough.
+    # Using index[-1] rather than index[0] matters when the equity curve
+    # reaches the same prior high multiple times (plateau / recovery / deeper
+    # crash) — index[0] would overstate the duration by starting from the
+    # first occurrence of the peak value rather than the most recent one.
     pre_trough = wealth.loc[:trough_idx]
     pre_trough_running_max = pre_trough.cummax()
-    # The peak is the first index where running_max == max value seen by trough
     peak_value = pre_trough_running_max.iloc[-1]
     peak_candidates = pre_trough[pre_trough >= peak_value]
     if len(peak_candidates) == 0:
         return 0
-    peak_idx = peak_candidates.index[0]
+    peak_idx = peak_candidates.index[-1]
     months = (trough_idx.year - peak_idx.year) * 12 + (trough_idx.month - peak_idx.month)
     return int(months)
 

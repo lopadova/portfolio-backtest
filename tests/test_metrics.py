@@ -205,6 +205,58 @@ class TestMaxDrawdownDuration:
         d = max_drawdown_duration_months(r)
         assert d == 1
 
+    def test_duration_on_plateau_then_crash(self):
+        """
+        Regression (addresses Copilot review comment on PR #1): when the
+        running max plateaus — i.e., the curve touches the same peak at
+        multiple consecutive points before the worst trough — duration
+        must be measured from the LAST peak occurrence, not the first.
+
+        Sequence: +5%, +5%, +5%, 0%, -30% produces:
+          W[0] = 1.05
+          W[1] = 1.1025
+          W[2] = 1.157625  ← peak first reached
+          W[3] = 1.157625  ← peak plateau (same value)
+          W[4] = 0.810338  ← worst trough
+
+        The running max is flat at 1.157625 for months 2 and 3. The
+        correct duration from the peak preceding the worst trough to
+        the trough itself is 4 - 3 = 1 month. If the implementation
+        picked `peak_candidates.index[0]`, it would incorrectly return
+        4 - 2 = 2 months.
+        """
+        dates = pd.date_range("2020-01-31", periods=5, freq="ME")
+        r = pd.Series([0.05, 0.05, 0.05, 0.0, -0.30], index=dates)
+        d = max_drawdown_duration_months(r)
+        assert d == 1, f"Expected 1 month (from last plateau), got {d}"
+
+    def test_duration_on_recovery_then_deeper_crash(self):
+        """
+        Regression (addresses Copilot review comment on PR #1): equity
+        curve reaches a peak, pulls back, recovers PAST the prior peak
+        (establishing a new running max), then crashes into a deeper
+        trough. The worst-DD duration must start from the *new* peak
+        (the most recent high before the trough), not from the first peak.
+
+        Sequence: +10%, -5%, +10%, -40% produces:
+          W[0] = 1.10       ← first peak
+          W[1] = 1.045      ← pullback
+          W[2] = 1.1495     ← new running max (strictly above W[0])
+          W[3] = 0.6897     ← worst trough
+
+        Correct duration from the new peak (index 2) to the trough (index 3)
+        is 1 month. A naive implementation scanning for the *first* index at
+        the running-max value before the trough, without a running-max filter,
+        could incorrectly anchor on an earlier timestamp.
+
+        We use strict overshoot (10% > 5.26% needed for exact recovery) to
+        avoid floating-point ambiguity around whether W[2] equals W[0].
+        """
+        dates = pd.date_range("2020-01-31", periods=4, freq="ME")
+        r = pd.Series([0.10, -0.05, 0.10, -0.40], index=dates)
+        d = max_drawdown_duration_months(r)
+        assert d == 1, f"Expected 1 month (from new peak to worst trough), got {d}"
+
 
 # ---------------------------------------------------------------------------
 # Ulcer Performance Index (UPI)
