@@ -71,6 +71,11 @@ def parse_args():
     p.add_argument("--step", type=float, help="Parameter step for sensitivity")
     p.add_argument("--values", type=float, nargs="+", help="Explicit parameter values (alternative to --range/--step)")
 
+    # Rolling-window backtest (Phase 5)
+    p.add_argument("--rolling-window", action="store_true", help="Run rolling-window backtest")
+    p.add_argument("--window-years", type=int, default=10, help="Rolling window size in years (default: 10)")
+    p.add_argument("--step-months", type=int, default=1, help="Step between windows in months (default: 1 = monthly)")
+
     return p.parse_args()
 
 
@@ -315,6 +320,26 @@ def main():
 
     if args.sensitivity:
         run_sensitivity(args, bundle=bundle)
+        return
+
+    if args.rolling_window:
+        from src.rolling_window import run_rolling_backtest, plot_rolling_window_results, summary_statistics
+        print(f"\nRunning rolling {args.window_years}-year window backtest (step: {args.step_months} months)...")
+        df = run_rolling_backtest(bundle, window_years=args.window_years, step_months=args.step_months)
+        output_dir = Path(args.output_dir) / "rolling_window"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = output_dir / f"rolling_{args.window_years}y.csv"
+        png_path = output_dir / f"rolling_{args.window_years}y.png"
+        df.to_csv(csv_path)
+        plot_rolling_window_results(df, args.window_years, png_path)
+        stats = summary_statistics(df)
+        print(f"\nSummary across {stats['n_windows']} windows:")
+        print(f"  CAGR: median {stats['cagr_median']:.2%}, worst {stats['cagr_worst']:.2%}, best {stats['cagr_best']:.2%}")
+        print(f"  Max DD: median {stats['maxdd_median']:.2%}, worst {stats['maxdd_worst']:.2%}")
+        print(f"  Sharpe: median {stats['sharpe_median']:.2f}, worst {stats['sharpe_worst']:.2f}")
+        print(f"  % windows with positive CAGR: {stats['pct_windows_positive_cagr']:.1%}")
+        print(f"  % windows with CAGR > 4%: {stats['pct_windows_cagr_above_4pct']:.1%}")
+        print(f"\nOutputs: {csv_path.name}, {png_path.name} in {output_dir.resolve()}")
         return
 
     # Main backtest
