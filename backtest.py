@@ -63,10 +63,13 @@ def parse_args():
     p.add_argument("--mc-block-size", type=int, default=3, help="MC block size in months (default: 3)")
 
     # Sensitivity
-    p.add_argument("--sensitivity", type=str, choices=["gold", "dbi", "options_budget", "rebalance_freq"],
+    p.add_argument("--sensitivity", type=str,
+                   choices=["gold", "dbi", "options_budget", "rebalance_freq",
+                            "put_write", "nasdaq_top30", "momentum", "quality"],
                    help="Run sensitivity analysis for a parameter")
     p.add_argument("--range", type=float, nargs=2, metavar=("LOW", "HIGH"), help="Parameter range for sensitivity")
     p.add_argument("--step", type=float, help="Parameter step for sensitivity")
+    p.add_argument("--values", type=float, nargs="+", help="Explicit parameter values (alternative to --range/--step)")
 
     return p.parse_args()
 
@@ -260,18 +263,43 @@ def run_monte_carlo(returns_dict: Dict[str, pd.Series], args, output_dir: Path):
     return stats
 
 
-def run_sensitivity(args):
+def run_sensitivity(args, bundle=None):
     """Run sensitivity analysis for one parameter."""
-    # Stub — full implementation is straightforward extension.
-    # For now prints instructions.
-    print("Sensitivity analysis — parameter sweeps are implemented by editing")
-    print("`src/portfolio.py` and re-running `python backtest.py` with a different")
-    print("`--output-dir` per run, then comparing the summary_statistics.csv files.")
-    print()
-    print("Example for gold weight (modify WEIGHTS['gold'] and WEIGHTS['equity'] to sum correctly):")
-    print(f"  for w in {args.range}: modify WEIGHTS['gold'] = w, re-run, collect results")
-    print()
-    print("A programmatic sensitivity runner is on the roadmap — see GitHub issues.")
+    from src.sensitivity import run_sensitivity_sweep, plot_sensitivity_results, parse_range_to_values
+
+    if bundle is None:
+        bundle = load_data(synthetic=args.synthetic)
+        start = pd.Timestamp(args.start)
+        end = pd.Timestamp(args.end)
+        bundle = bundle.slice(start, end)
+
+    values = parse_range_to_values(args.range, args.step, args.values)
+    print(f"\nRunning sensitivity sweep on parameter '{args.sensitivity}':")
+    print(f"  Values: {[f'{v:.4f}' for v in values]}")
+
+    df = run_sensitivity_sweep(bundle, args.sensitivity, values)
+
+    output_dir = Path(args.output_dir) / "sensitivity"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = output_dir / f"{args.sensitivity}.csv"
+    png_path = output_dir / f"{args.sensitivity}.png"
+
+    df.to_csv(csv_path)
+    plot_sensitivity_results(df, args.sensitivity, png_path)
+
+    print(f"\nResults written to:")
+    print(f"  {csv_path.resolve()}")
+    print(f"  {png_path.resolve()}\n")
+
+    # Also print a summary table
+    from tabulate import tabulate
+    pct_cols = ["cagr", "annualized_vol", "max_drawdown", "total_return"]
+    display_df = df.copy()
+    for c in pct_cols:
+        display_df[c] = display_df[c].apply(lambda x: f"{x:.2%}")
+    for c in ["sharpe", "calmar", "ulcer_index", "upi"]:
+        display_df[c] = display_df[c].apply(lambda x: f"{x:.2f}")
+    print(tabulate(display_df.drop(columns=["param_name"]), headers="keys", tablefmt="github"))
 
 
 def main():
@@ -286,7 +314,7 @@ def main():
     print(f"Loaded {len(bundle.monthly_returns_eur)} months of data")
 
     if args.sensitivity:
-        run_sensitivity(args)
+        run_sensitivity(args, bundle=bundle)
         return
 
     # Main backtest
