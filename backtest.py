@@ -331,7 +331,7 @@ def main():
         csv_path = output_dir / f"rolling_{args.window_years}y.csv"
         png_path = output_dir / f"rolling_{args.window_years}y.png"
         df.to_csv(csv_path)
-        plot_rolling_window_results(df, args.window_years, png_path)
+        plot_rolling_window_results(df, args.window_years, png_path, step_months=args.step_months)
         stats = summary_statistics(df)
         print(f"\nSummary across {stats['n_windows']} windows:")
         print(f"  CAGR: median {stats['cagr_median']:.2%}, worst {stats['cagr_worst']:.2%}, best {stats['cagr_best']:.2%}")
