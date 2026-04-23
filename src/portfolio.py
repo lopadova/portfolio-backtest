@@ -263,6 +263,44 @@ BENCHMARKS: Dict[str, Dict[str, float]] = {
         "gold_lbma_monthly":           0.075,
         "sg_cta_index_monthly":        0.075,  # commodity-trend proxy
     },
+    # Phase 3: classical allocator portfolios.
+    # Missing-data policy (see simulate_benchmark `min_coverage`, default 0.80):
+    #   - if ≥ 80% of the portfolio's weight has data available, the benchmark
+    #     runs with renormalized weights (remaining sleeves scaled to sum=1.0)
+    #   - if coverage falls below 80%, the benchmark is skipped entirely with
+    #     a log message (no crash, no silently distorted weights)
+    "Golden Butterfly (Tyler)": {
+        # 20/20/20/20/20: US large + US SCV + LT Treas + ST Treas + Gold
+        "sp500_tr_monthly":           0.20,
+        "sp600_scv_tr_monthly":       0.20,   # S&P 600 Small-Cap Value
+        "iboxx_eurgov_7_10y_monthly": 0.20,   # LT treasuries (EU proxy)
+        "iboxx_eurgov_1_3y_monthly":  0.20,   # ST treasuries (EU proxy)
+        "gold_lbma_monthly":          0.20,
+    },
+    "Harry Browne Permanent Portfolio": {
+        # 25/25/25/25: Stocks + LT Treas + Cash + Gold
+        "msci_world_tr_monthly":      0.25,
+        "iboxx_eurgov_7_10y_monthly": 0.25,
+        "iboxx_eurgov_1_3y_monthly":  0.25,   # cash proxy (short-duration gov)
+        "gold_lbma_monthly":          0.25,
+    },
+    "Dalio All-Weather (official)": {
+        # Dalio's published All-Weather weights: 30/40/15/7.5/7.5
+        "msci_world_tr_monthly":      0.30,
+        "iboxx_eurgov_7_10y_monthly": 0.40,   # long-term
+        "iboxx_eurgov_1_3y_monthly":  0.15,   # intermediate-term proxy
+        "gold_lbma_monthly":          0.075,
+        "sg_cta_index_monthly":       0.075,  # commodities proxy
+    },
+    "Swensen Lazy": {
+        # Yale CIO David Swensen "Lazy Portfolio": 30/15/5/20/15/15
+        "sp500_tr_monthly":           0.30,   # domestic (US) equity
+        "msci_world_ex_usa_monthly":  0.15,   # international developed
+        "msci_emerging_tr_monthly":   0.05,   # emerging markets
+        "ftse_nareit_tr_monthly":     0.20,   # REITs
+        "iboxx_eurgov_7_10y_monthly": 0.15,   # long treasuries
+        "us_tips_tr_monthly":         0.15,   # TIPS (inflation-protected)
+    },
 }
 
 

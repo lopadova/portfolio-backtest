@@ -151,12 +151,35 @@ def simulate_benchmark(
     monthly_returns: pd.DataFrame,
     weights: Dict[str, float],
     rebalance_annual: bool = True,
+    min_coverage: float = 0.80,
 ) -> pd.Series:
     """
     Simulate a simple benchmark portfolio (e.g., 60/40) with annual rebalancing.
+
+    min_coverage: minimum fraction of total weight that must be represented
+    in monthly_returns.columns. If less than this fraction is available, the
+    benchmark is skipped (returns empty Series). Default 80% — means we allow
+    up to 20% of the portfolio weight to be on missing data and normalize
+    the rest. This prevents artificially scaling up a tiny remainder.
+    Must be a finite number in [0.0, 1.0]; ValueError is raised otherwise.
     """
+    # Validate min_coverage is a finite number in [0, 1]
+    if not isinstance(min_coverage, (int, float)) or not np.isfinite(min_coverage):
+        raise ValueError(
+            f"min_coverage must be a finite number in [0, 1], got {min_coverage!r}"
+        )
+    if not (0.0 <= min_coverage <= 1.0):
+        raise ValueError(
+            f"min_coverage must be in [0.0, 1.0], got {min_coverage}"
+        )
+
     available = [k for k in weights if k in monthly_returns.columns]
     if len(available) == 0:
+        return pd.Series(dtype=float)
+
+    # Coverage check: sum of weights for which we have data
+    coverage = sum(weights[k] for k in available)
+    if coverage < min_coverage:
         return pd.Series(dtype=float)
 
     # Normalize weights over available columns

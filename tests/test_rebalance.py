@@ -97,8 +97,42 @@ class TestSimulateBenchmark:
         assert corr > 0.99
 
     def test_benchmark_skips_missing_columns(self, synthetic_bench_data):
-        """If a benchmark references a column that doesn't exist, it should not crash."""
+        """
+        If a benchmark references a column that doesn't exist and coverage
+        falls below min_coverage (Phase 3), the benchmark is skipped (empty
+        series returned) rather than running with distorted weights.
+        Using min_coverage=0.0 keeps the old "run with what's available" behavior.
+        """
         weights = {"msci_world_tr_monthly": 0.5, "nonexistent_asset": 0.5}
-        out = simulate_benchmark(synthetic_bench_data, weights)
-        # Should still return something (using just the available column, normalized)
-        assert len(out) > 0
+        # With default min_coverage=0.80 → coverage=0.5 → skipped
+        out_skipped = simulate_benchmark(synthetic_bench_data, weights)
+        assert len(out_skipped) == 0
+        # Explicit loose coverage → runs with the available 50% re-normalized to 100%
+        out_loose = simulate_benchmark(synthetic_bench_data, weights, min_coverage=0.0)
+        assert len(out_loose) > 0
+
+    def test_min_coverage_validates_type(self, synthetic_bench_data):
+        """min_coverage must be a finite number."""
+        weights = {"msci_world_tr_monthly": 0.6, "bloomberg_euro_agg_monthly": 0.4}
+        with pytest.raises(ValueError, match="min_coverage must be a finite number"):
+            simulate_benchmark(synthetic_bench_data, weights, min_coverage="0.8")
+        with pytest.raises(ValueError, match="min_coverage must be a finite number"):
+            simulate_benchmark(synthetic_bench_data, weights, min_coverage=float("nan"))
+        with pytest.raises(ValueError, match="min_coverage must be a finite number"):
+            simulate_benchmark(synthetic_bench_data, weights, min_coverage=float("inf"))
+
+    def test_min_coverage_validates_range(self, synthetic_bench_data):
+        """min_coverage must be in [0.0, 1.0]."""
+        weights = {"msci_world_tr_monthly": 0.6, "bloomberg_euro_agg_monthly": 0.4}
+        with pytest.raises(ValueError, match="must be in"):
+            simulate_benchmark(synthetic_bench_data, weights, min_coverage=-0.1)
+        with pytest.raises(ValueError, match="must be in"):
+            simulate_benchmark(synthetic_bench_data, weights, min_coverage=1.5)
+
+    def test_min_coverage_boundary_values_accepted(self, synthetic_bench_data):
+        """min_coverage=0.0 and 1.0 are both valid boundary values."""
+        weights = {"msci_world_tr_monthly": 0.6, "bloomberg_euro_agg_monthly": 0.4}
+        out_low = simulate_benchmark(synthetic_bench_data, weights, min_coverage=0.0)
+        out_high = simulate_benchmark(synthetic_bench_data, weights, min_coverage=1.0)
+        assert len(out_low) == 36
+        assert len(out_high) == 36  # full coverage available

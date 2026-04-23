@@ -170,6 +170,17 @@ def load_data(synthetic: bool = False) -> DataBundle:
         "iboxx_eurgov_1_3y_monthly":  ("eur",      "iboxx_eurgov_1_3y_monthly"),
         "gold_lbma_monthly":          ("unhedged", "gold_lbma_monthly"),
         "sg_cta_index_monthly":       ("unhedged", "sg_cta_index_monthly"),
+        # Phase 3: additional series used by the classical allocator benchmarks.
+        # Each is loaded individually if its CSV is present in data/raw/, and
+        # silently omitted from benchmark_monthly_eur otherwise. Whether a given
+        # benchmark portfolio runs or is skipped depends on simulate_benchmark()'s
+        # coverage threshold (default 0.80) applied to its weighted composition,
+        # not on which individual series are missing here.
+        "msci_world_ex_usa_monthly":  ("unhedged", "msci_world_ex_usa_monthly"),
+        "msci_emerging_tr_monthly":   ("unhedged", "msci_emerging_tr_monthly"),
+        "sp600_scv_tr_monthly":       ("unhedged", "sp600_scv_tr_monthly"),
+        "ftse_nareit_tr_monthly":     ("unhedged", "ftse_nareit_tr_monthly"),
+        "us_tips_tr_monthly":         ("unhedged", "us_tips_tr_monthly"),
     }
     for key, (currency, filename) in bench_files.items():
         try:
@@ -253,6 +264,12 @@ def _generate_synthetic_bundle() -> DataBundle:
         "iboxx_eurgov_1_3y_monthly":  (0.002, 0.006),
         "gold_lbma_monthly":          (0.004, 0.03),
         "sg_cta_index_monthly":       (0.005, 0.025),
+        # Phase 3 additions for synthetic mode
+        "msci_world_ex_usa_monthly":  (0.006, 0.035),
+        "msci_emerging_tr_monthly":   (0.008, 0.055),
+        "sp600_scv_tr_monthly":       (0.010, 0.055),
+        "ftse_nareit_tr_monthly":     (0.007, 0.045),
+        "us_tips_tr_monthly":         (0.003, 0.013),
     }
     for k, (mu, sigma) in bench_params.items():
         benchmark[k] = np.random.normal(mu, sigma, size=len(dates_monthly))
