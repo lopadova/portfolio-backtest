@@ -36,8 +36,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ merged to main · 📤 pushed
 | 1 | Metrics++ (Avg DD, DD duration, UPI) | `feat/phase-1-metrics` | ✅ | Merged — PR #1 (incl. Copilot fixes, 126 tests) |
 | 2 | MC scenarios (Prudente/Mediana/Ottimista, N-years flag) | `feat/phase-2-mc-scenarios` | ✅ | Merged — PR #2 (incl. Copilot fixes, 133 tests) |
 | 3 | Additional benchmarks (Golden Butterfly, Permanent, Swensen, Dalio AW official) | `feat/phase-3-benchmarks` | ✅ | Merged — PR #3 (incl. Copilot fixes, 142 tests) |
-| 4 | Programmatic sensitivity sweep | `feat/phase-4-sensitivity` | 📤 | Pushed — rebased on main |
-| 5 | Rolling-window backtest | `feat/phase-5-rolling-window` | ⬜ | Branch from phase-4 |
+| 4 | Programmatic sensitivity sweep | `feat/phase-4-sensitivity` | ✅ | Merged — PR #4 (incl. Copilot fixes, 162 tests) |
+| 5 | Rolling-window backtest | `feat/phase-5-rolling-window` | 📤 | Pushed — rebased on main |
 | 6 | Efficient Frontier (Markowitz + 50k random) | `feat/phase-6-efficient-frontier` | ⬜ | Branch from phase-5 |
 | 7 | Italian tax modeling (26% CGT + 4y carry) | `feat/phase-7-tax-it` | ⬜ | Branch from phase-6 |
 | 8 | FIRE calculator (2-phase + Italian mortality tables + pension + Black Swan) | `feat/phase-8-fire` | ⬜ | Branch from phase-7 |
