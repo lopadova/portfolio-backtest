@@ -6,7 +6,7 @@ carryforward.
 import pandas as pd
 import pytest
 
-from src.tax import TaxLedger, LossLot, TaxEvent
+from src.tax import TaxLedger
 
 
 @pytest.fixture
@@ -77,6 +77,33 @@ class TestLossOffset:
         # Gain 1000 should consume from the 2022 lot first (FIFO)
         assert event.offset_used == pytest.approx(1000.0)
         assert ledger.outstanding_losses() == pytest.approx(3500.0)  # 2000 remaining 2022 + 1500 2024
+
+
+class TestOutOfOrderInsertion:
+    """Regression (Copilot PR #8): full-scan purge + FIFO re-sort must handle
+    loss lots that are NOT inserted in chronological order (e.g., a backfilled
+    late trade whose `year` is older than an already-present lot)."""
+
+    def test_out_of_order_losses_still_purged(self, ledger):
+        # Insert a RECENT loss first (2024), then a BACKFILLED older one (2020)
+        ledger.record_sale(pd.Timestamp("2024-06-01"), "quality", 9_500, 10_000)   # -500 loss @ 2024
+        ledger.record_sale(pd.Timestamp("2020-06-01"), "nasdaq_top30", 9_000, 10_000)  # -1000 loss @ 2020 (backfilled)
+        # Purge at end of 2025 — the 2020 lot has expires_year=2025 so it expires, the 2024 lot survives
+        expired = ledger.purge_expired(current_year=2025)
+        assert expired == pytest.approx(1000.0)  # the 2020 lot (1000)
+        assert ledger.outstanding_losses() == pytest.approx(500.0)  # the 2024 lot survives
+
+    def test_out_of_order_losses_consumed_oldest_first(self, ledger):
+        """After an out-of-order insertion, a subsequent gain must offset
+        the oldest-by-year lot first (FIFO), not the insertion-order first."""
+        # Insert 2024 loss first, then backfill a 2021 loss
+        ledger.record_sale(pd.Timestamp("2024-01-01"), "quality", 8_500, 10_000)   # -1500 @ 2024
+        ledger.record_sale(pd.Timestamp("2021-01-01"), "quality", 9_000, 10_000)   # -1000 @ 2021
+        # A 2024 gain of 1000 should consume from the 2021 lot (oldest by year) first
+        event = ledger.record_sale(pd.Timestamp("2024-06-01"), "quality", 11_000, 10_000)
+        assert event.offset_used == pytest.approx(1000.0)  # consumed the 2021 lot fully
+        # Remaining should be the 2024 lot untouched (1500)
+        assert ledger.outstanding_losses() == pytest.approx(1500.0)
 
 
 class TestCarryforwardExpiration:

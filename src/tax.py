@@ -27,7 +27,7 @@ References:
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Deque, Dict, List, Optional
 
 import pandas as pd
@@ -59,16 +59,22 @@ class TaxLedger:
     Accumulates realized P&L per sleeve and applies Italian CGT rules.
 
     Usage:
-        ledger = TaxLedger(config)
+        ledger = TaxLedger(
+            capital_gains_rate=0.26,
+            gov_bond_rate=0.125,
+            loss_carryforward_years=4,
+        )
         ledger.record_sale(date, sleeve, proceeds, cost_basis)
         tax_due_this_year = ledger.tax_accrued_for_year(year)
-        ledger.purge_expired(year=current_year)
+        ledger.purge_expired(current_year=current_year)
 
     Assumptions:
         * Lot tracking is at the *sleeve* level, not individual security.
         * Cost basis is carried as a single running average per sleeve (the
           portfolio does not hold individual shares — it holds proportional
           stakes). This is a simplification vs real lot-by-lot accounting.
+        * Loss lots are purged by full scan (no assumption that they are
+          inserted in chronological order — see `_purge_expired_internal`).
     """
 
     def __init__(
@@ -143,11 +149,16 @@ class TaxLedger:
                 offset_used=0.0, tax_due=0.0, rate_applied=rate,
             )
         else:
-            # Gain — offset against oldest losses first (FIFO)
+            # Gain — offset against oldest losses first (FIFO).
+            # We explicitly sort the bucket by year (then expires_year) so the
+            # FIFO invariant holds even if record_sale() was called out of
+            # chronological order (e.g. backfilled trades). Surviving lots
+            # are written back as a deque for O(1) popleft() in consumption.
             remaining_gain = realized_pl
             offset_total = 0.0
             self._purge_expired_internal(year)
-            # Consume loss bucket oldest-first
+            ordered = sorted(self.loss_bucket, key=lambda l: (l.year, l.expires_year))
+            self.loss_bucket = deque(ordered)
             while remaining_gain > 0 and self.loss_bucket:
                 lot = self.loss_bucket[0]
                 if lot.amount <= remaining_gain:
@@ -173,12 +184,24 @@ class TaxLedger:
 
     def _purge_expired_internal(self, current_year: int) -> float:
         """
-        Remove loss lots whose expires_year is <= current_year.
+        Remove ALL loss lots whose expires_year is <= current_year.
+
+        Uses a full scan of the bucket (not just `loss_bucket[0]`) so that
+        out-of-order insertions — e.g. a backfilled or late-reported trade —
+        cannot leave expired lots stranded in the middle of the deque. The
+        scan is O(N) per call but N is bounded (one entry per realized loss
+        within the 4-year rollover, typically a handful).
+
         Returns the total amount of losses expired (for reporting).
         """
         expired_total = 0.0
-        while self.loss_bucket and self.loss_bucket[0].expires_year <= current_year:
-            expired_total += self.loss_bucket.popleft().amount
+        surviving = deque()
+        for lot in self.loss_bucket:
+            if lot.expires_year <= current_year:
+                expired_total += lot.amount
+            else:
+                surviving.append(lot)
+        self.loss_bucket = surviving
         return expired_total
 
     def purge_expired(self, current_year: int) -> float:
