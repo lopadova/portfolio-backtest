@@ -21,9 +21,9 @@ Outputs:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Optional, Tuple
+from typing import Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 
 from .monte_carlo import block_bootstrap
-from .mortality import sample_death_age, load_mortality_table
+from .mortality import sample_death_age
 
 
 @dataclass
@@ -109,10 +109,24 @@ def run_fire_simulation(
 
     Returns a list of FireSimulationResult objects.
     """
-    rng = np.random.default_rng(config.seed)
-
-    # How many months of simulation do we need? Up to max age (110)
+    # --- Input validation ---
     max_age = 110
+    if not (0 <= config.current_age <= max_age):
+        raise ValueError(
+            f"current_age must be in [0, {max_age}], got {config.current_age}"
+        )
+    if config.fixed_end_age is not None:
+        if not (config.current_age <= config.fixed_end_age <= max_age):
+            raise ValueError(
+                f"fixed_end_age must be in [current_age={config.current_age}, {max_age}], "
+                f"got {config.fixed_end_age}"
+            )
+    if config.tax_on_withdrawals and not (0.0 <= config.tax_rate < 1.0):
+        raise ValueError(
+            f"tax_rate must be in [0, 1) when tax_on_withdrawals is enabled, "
+            f"got {config.tax_rate}. (tax_rate=1.0 would produce division by zero on gross-up.)"
+        )
+
     max_months = (max_age - config.current_age) * 12
 
     # Pre-sample death ages (one per simulation)
@@ -147,11 +161,16 @@ def run_fire_simulation(
         sim_months = (death_age - config.current_age) * 12
         returns = bootstrap_paths[sim_idx][:sim_months]
 
+        # Trajectory stores sim_months+1 points: index 0 = wealth at current_age
+        # (BEFORE any contribution/return) so downstream aggregation can map
+        # age→month_idx via (age - current_age) * 12 without an off-by-one shift.
+        trajectory = np.zeros(sim_months + 1)
+        trajectory[0] = config.initial_capital
         wealth = config.initial_capital
-        trajectory = np.zeros(sim_months)
         failure_age = None
         inflation_factor = 1.0
         pension_revaluation_factor = 1.0
+        pension_months_elapsed = 0  # months since pension started (for annual revaluation)
 
         for m in range(sim_months):
             age_years = config.current_age + m / 12.0
@@ -166,8 +185,12 @@ def run_fire_simulation(
                 spending_month = config.monthly_spending * inflation_factor
                 pension_income = 0.0
                 if config.pension_enabled and age_years >= config.pension_start_age:
-                    # Pension revalued annually
-                    if m > 0 and m % 12 == 0:
+                    # Apply pension revaluation ONLY after the first full year of
+                    # pension payments (pension_months_elapsed >= 12 and on annual
+                    # boundaries thereafter). Previously, m % 12 == 0 triggered an
+                    # extra revaluation at pension start — an off-by-one year bug.
+                    pension_months_elapsed += 1
+                    if pension_months_elapsed > 12 and (pension_months_elapsed - 1) % 12 == 0:
                         pension_revaluation_factor *= (1.0 + config.inflation_rate * config.pension_revaluation)
                     pension_income = config.pension_monthly_amount * pension_revaluation_factor
                 net_withdrawal = spending_month - pension_income
@@ -175,10 +198,8 @@ def run_fire_simulation(
                     # Surplus — reinvest
                     wealth += (-net_withdrawal)
                 else:
-                    # Withdrawal + optional tax
+                    # Withdrawal + optional tax gross-up
                     if config.tax_on_withdrawals:
-                        # Simplified: tax the entire withdrawal as if fully plusvalenza
-                        # (conservative for accumulated portfolios)
                         gross_withdrawal = net_withdrawal / (1.0 - config.tax_rate)
                     else:
                         gross_withdrawal = net_withdrawal
@@ -190,11 +211,10 @@ def run_fire_simulation(
             if wealth <= 0:
                 failure_age = int(age_years)
                 wealth = 0.0
-                trajectory[m:] = 0.0
+                trajectory[m + 1:] = 0.0
                 break
-            trajectory[m] = wealth
+            trajectory[m + 1] = wealth
 
-        # Pad trajectory to uniform length for aggregation
         final_wealth_nominal = wealth
         final_wealth_real = wealth / inflation_factor
 
@@ -294,18 +314,33 @@ def plot_fire_projection(summary: FireSummary, config: FireConfig, path: Path):
 
 
 def plot_fire_success_probability(results: list[FireSimulationResult], config: FireConfig, path: Path):
-    """Success probability by age: % of simulations where portfolio was still > 0 at each age."""
+    """
+    Success probability by age: conditional on being alive at that age, what
+    % of simulations still have portfolio > 0?
+
+    BUG-FIX note (Copilot PR #9): previously the denominator was `n` (all
+    simulations), which meant paths with death_age < current_iter_age were
+    excluded from the numerator and the curve appeared to drop due to
+    MORTALITY rather than portfolio failure. The correct reading for a
+    retirement-robustness chart is to condition on being alive at each age.
+    """
     max_age = 110
     ages = list(range(config.current_age, max_age + 1))
-    n = len(results)
     success_by_age = []
     for age in ages:
         month_idx = (age - config.current_age) * 12
-        alive_portfolio = sum(
-            1 for r in results
+        # Denominator: simulations where this person is still alive at `age`
+        alive_sims = [r for r in results if r.death_age >= age]
+        if len(alive_sims) == 0:
+            # Nobody in the Monte Carlo sample reached this age → not plotted
+            success_by_age.append(float("nan"))
+            continue
+        # Numerator: among the alive, how many had portfolio > 0 at that age
+        portfolio_alive = sum(
+            1 for r in alive_sims
             if month_idx < len(r.wealth_trajectory) and r.wealth_trajectory[month_idx] > 0
         )
-        success_by_age.append(alive_portfolio / n * 100)
+        success_by_age.append(portfolio_alive / len(alive_sims) * 100)
 
     fig, ax = plt.subplots(figsize=(12, 6))
     ax.plot(ages, success_by_age, color="#2ca02c", linewidth=2.2)

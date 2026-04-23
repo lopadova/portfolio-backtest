@@ -2,6 +2,8 @@
 Unit tests for src/mortality.py and src/fire.py.
 """
 
+import matplotlib
+matplotlib.use("Agg")  # non-interactive backend for headless/CI runs
 import numpy as np
 import pandas as pd
 import pytest
@@ -44,6 +46,33 @@ class TestMortalityTable:
         assert (table["qx_male"] <= 1).all()
         assert (table["qx_female"] >= 0).all()
         assert (table["qx_female"] <= 1).all()
+
+
+class TestSexValidation:
+    """Regression (Copilot PR #9): invalid sex values must raise, not
+    silently fall through to 'female' via an else-branch."""
+
+    def test_invalid_sex_raises_in_life_expectancy(self):
+        with pytest.raises(ValueError, match="sex must be one of"):
+            life_expectancy(current_age=30, sex="other")
+        with pytest.raises(ValueError, match="sex must be one of"):
+            life_expectancy(current_age=30, sex="")
+
+    def test_invalid_sex_raises_in_sample_death_age(self):
+        with pytest.raises(ValueError, match="sex must be one of"):
+            sample_death_age(current_age=30, sex="X", n_samples=10)
+
+    def test_non_string_sex_raises(self):
+        with pytest.raises(ValueError, match="must be a string"):
+            life_expectancy(current_age=30, sex=None)
+        with pytest.raises(ValueError, match="must be a string"):
+            life_expectancy(current_age=30, sex=1)
+
+    def test_valid_sex_case_insensitive(self):
+        """All four canonical forms should work."""
+        for s in ["M", "m", "male", "MALE", "Male", "F", "f", "female", "FEMALE"]:
+            le = life_expectancy(current_age=0, sex=s)
+            assert le > 0
 
 
 class TestLifeExpectancy:
@@ -176,3 +205,70 @@ class TestFireSimulation:
         chart_path = tmp_path / "fire_proj.png"
         plot_fire_projection(summary, basic_fire_config, chart_path)
         assert chart_path.exists()
+
+
+class TestFireValidation:
+    """Regression (Copilot PR #9): run_fire_simulation must validate its
+    FireConfig bounds to avoid negative-length trajectories or tax-rate=1.0
+    division-by-zero."""
+
+    def test_fixed_end_age_must_be_ge_current_age(self, fire_portfolio_returns):
+        config = FireConfig(
+            current_age=50, fixed_end_age=45,  # INVALID: end < current
+            initial_capital=100_000, fire_age=45,
+            monthly_spending=1_000, n_simulations=5,
+        )
+        with pytest.raises(ValueError, match="fixed_end_age"):
+            run_fire_simulation(config, fire_portfolio_returns)
+
+    def test_current_age_out_of_range(self, fire_portfolio_returns):
+        config = FireConfig(
+            current_age=150, initial_capital=100_000, fire_age=50,
+            monthly_spending=1_000, n_simulations=5,
+        )
+        with pytest.raises(ValueError, match="current_age"):
+            run_fire_simulation(config, fire_portfolio_returns)
+
+    def test_tax_rate_one_raises(self, fire_portfolio_returns):
+        """tax_rate=1.0 would cause division-by-zero on gross-up."""
+        config = FireConfig(
+            current_age=45, initial_capital=100_000, fire_age=50,
+            monthly_spending=1_000, n_simulations=5,
+            tax_on_withdrawals=True, tax_rate=1.0,
+        )
+        with pytest.raises(ValueError, match="tax_rate"):
+            run_fire_simulation(config, fire_portfolio_returns)
+
+
+class TestTrajectoryIndexing:
+    """Regression (Copilot PR #9): wealth_trajectory[0] must be the INITIAL
+    wealth at current_age, not end-of-month-1 wealth. The whole
+    (age - current_age) * 12 mapping depends on this."""
+
+    def test_trajectory_starts_at_initial_capital(self, fire_portfolio_returns):
+        config = FireConfig(
+            current_age=45, sex="M",
+            initial_capital=100_000.0,
+            contribution_amount=500, contribution_frequency="month",
+            fire_age=55,
+            monthly_spending=2_000, n_simulations=5,
+            seed=42,
+        )
+        results = run_fire_simulation(config, fire_portfolio_returns)
+        for r in results:
+            # trajectory[0] must equal initial_capital (before any contribution/return)
+            assert r.wealth_trajectory[0] == pytest.approx(100_000.0, abs=1e-6)
+
+    def test_trajectory_length_is_sim_months_plus_one(self, fire_portfolio_returns):
+        config = FireConfig(
+            current_age=45, sex="M",
+            fixed_end_age=50,  # 5 years = 60 months
+            initial_capital=100_000.0,
+            contribution_amount=0, fire_age=45,
+            monthly_spending=1_000, n_simulations=3,
+            seed=42,
+        )
+        results = run_fire_simulation(config, fire_portfolio_returns)
+        for r in results:
+            # sim_months + 1 = 60 + 1 = 61
+            assert len(r.wealth_trajectory) == 61

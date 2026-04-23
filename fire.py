@@ -16,8 +16,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import pandas as pd
-
 from src.data_loader import load_data
 from src.rebalance import simulate_portfolio
 from src.fire import (

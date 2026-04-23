@@ -61,7 +61,7 @@ def sample_death_age(
     """
     if table is None:
         table = load_mortality_table()
-    col = "qx_male" if sex.lower() in ("m", "male") else "qx_female"
+    col = _qx_column_for_sex(sex)
     qx_by_age = dict(zip(table["age"], table[col]))
     max_age = int(table["age"].max())
 
@@ -83,6 +83,24 @@ def sample_death_age(
     return death_ages
 
 
+def _qx_column_for_sex(sex: str) -> str:
+    """
+    Validate `sex` and return the corresponding qx column name.
+    Accepts: "M", "F", "male", "female" (case-insensitive).
+    Raises ValueError for any other value to prevent silent misclassification.
+    """
+    if not isinstance(sex, str):
+        raise ValueError(f"sex must be a string, got {sex!r}")
+    normalized = sex.strip().lower()
+    if normalized in ("m", "male"):
+        return "qx_male"
+    if normalized in ("f", "female"):
+        return "qx_female"
+    raise ValueError(
+        f"sex must be one of 'M', 'F', 'male', 'female' (case-insensitive), got {sex!r}"
+    )
+
+
 def life_expectancy(current_age: int, sex: str, table: Optional[pd.DataFrame] = None) -> float:
     """
     Compute remaining life expectancy from the mortality table analytically
@@ -90,7 +108,7 @@ def life_expectancy(current_age: int, sex: str, table: Optional[pd.DataFrame] = 
     """
     if table is None:
         table = load_mortality_table()
-    col = "qx_male" if sex.lower() in ("m", "male") else "qx_female"
+    col = _qx_column_for_sex(sex)
     qx_by_age = dict(zip(table["age"], table[col]))
     max_age = int(table["age"].max())
 
