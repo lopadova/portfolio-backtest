@@ -57,11 +57,13 @@ def run_rolling_backtest(
       - step_months is not a positive integer (would cause infinite loop)
       - data range is strictly shorter than the window
     """
-    if not isinstance(window_years, int) or window_years <= 0:
+    # Explicitly reject bool (subclass of int in Python — would silently
+    # treat True as 1 and False as 0, contradicting "positive integer")
+    if isinstance(window_years, bool) or not isinstance(window_years, int) or window_years <= 0:
         raise ValueError(
             f"window_years must be a positive integer, got {window_years!r}"
         )
-    if not isinstance(step_months, int) or step_months <= 0:
+    if isinstance(step_months, bool) or not isinstance(step_months, int) or step_months <= 0:
         raise ValueError(
             f"step_months must be a positive integer, got {step_months!r} "
             f"(non-positive would produce an infinite loop)"
@@ -118,13 +120,15 @@ def _describe_step(step_months: int) -> str:
     return f"every {step_months} months"
 
 
-def plot_rolling_window_results(df: pd.DataFrame, window_years: int, path: Path, step_months: int = 1):
+def plot_rolling_window_results(df: pd.DataFrame, window_years: int, path: Path, step_months: int):
     """
     Three-panel chart showing the distribution of CAGR / Max DD / Sharpe
     across all rolling windows.
 
-    step_months: passed through from the caller; used to make the chart title
-    honest (e.g., "stepped annually" instead of hardcoded "stepped monthly").
+    step_months: REQUIRED (no default). Passed through from the caller to
+    make the chart title honest ("stepped monthly" vs "quarterly" vs etc.).
+    Defaulting this silently would reintroduce the hardcoded-cadence bug
+    if a caller forgets to pass the actual step used to generate `df`.
     """
     fig, axes = plt.subplots(3, 1, figsize=(13, 11), sharex=True)
     fig.suptitle(

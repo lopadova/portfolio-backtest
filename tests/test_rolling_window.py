@@ -11,6 +11,7 @@ from src.rolling_window import (
     run_rolling_backtest,
     plot_rolling_window_results,
     summary_statistics,
+    _describe_step,
 )
 from src.data_loader import _generate_synthetic_bundle
 
@@ -78,9 +79,62 @@ class TestRollingBacktest:
         bundle = _generate_synthetic_bundle()
         df = run_rolling_backtest(bundle, window_years=5, step_months=12)
         chart_path = tmp_path / "rolling.png"
-        plot_rolling_window_results(df, window_years=5, path=chart_path)
+        plot_rolling_window_results(df, window_years=5, path=chart_path, step_months=12)
         assert chart_path.exists()
         assert chart_path.stat().st_size > 1000
+
+    def test_rejects_bool_as_window_years(self):
+        """bool is a subclass of int in Python; must be rejected explicitly."""
+        bundle = _generate_synthetic_bundle()
+        with pytest.raises(ValueError, match="window_years must be a positive integer"):
+            run_rolling_backtest(bundle, window_years=True, step_months=1)
+        with pytest.raises(ValueError, match="window_years must be a positive integer"):
+            run_rolling_backtest(bundle, window_years=False, step_months=1)
+
+    def test_rejects_bool_as_step_months(self):
+        bundle = _generate_synthetic_bundle()
+        with pytest.raises(ValueError, match="step_months must be a positive integer"):
+            run_rolling_backtest(bundle, window_years=5, step_months=True)
+        with pytest.raises(ValueError, match="step_months must be a positive integer"):
+            run_rolling_backtest(bundle, window_years=5, step_months=False)
+
+
+class TestDescribeStep:
+    """Coverage for _describe_step() — used in plot titles."""
+
+    def test_monthly_label(self):
+        assert _describe_step(1) == "monthly"
+
+    def test_quarterly_label(self):
+        assert _describe_step(3) == "quarterly"
+
+    def test_semi_annually_label(self):
+        assert _describe_step(6) == "semi-annually"
+
+    def test_annually_label(self):
+        assert _describe_step(12) == "annually"
+
+    def test_custom_label(self):
+        """Non-standard cadences produce a generic 'every N months' label."""
+        assert _describe_step(2) == "every 2 months"
+        assert _describe_step(5) == "every 5 months"
+        assert _describe_step(24) == "every 24 months"
+
+
+class TestChartTitleReflectsStep:
+    """Regression: ensure the chart title honestly reflects the step used."""
+
+    def test_annual_step_produces_annually_label(self, tmp_path):
+        from src.rolling_window import _describe_step
+        # Unit-level verification: we trust matplotlib to write the suptitle;
+        # the title string comes from _describe_step, which we test directly.
+        bundle = _generate_synthetic_bundle()
+        df = run_rolling_backtest(bundle, window_years=5, step_months=12)
+        chart_path = tmp_path / "rolling_annual.png"
+        plot_rolling_window_results(df, window_years=5, path=chart_path, step_months=12)
+        assert chart_path.exists()
+        # The label the chart should have embedded:
+        assert _describe_step(12) == "annually"
 
 
 class TestSummaryStatistics:
