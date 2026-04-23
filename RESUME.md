@@ -33,8 +33,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ merged to main · 📤 pushed
 
 | # | Phase | Branch | Status | Commit / Notes |
 |---|---|---|---|---|
-| 1 | Metrics++ (Avg DD, DD duration, UPI) | `feat/phase-1-metrics` | 📤 | Pushed — 124 tests passing |
-| 2 | MC scenarios (Prudente/Mediana/Ottimista, N-years flag) | `feat/phase-2-mc-scenarios` | ⬜ | Branch from phase-1 |
+| 1 | Metrics++ (Avg DD, DD duration, UPI) | `feat/phase-1-metrics` | ✅ | Merged — PR #1 (incl. Copilot fixes, 126 tests) |
+| 2 | MC scenarios (Prudente/Mediana/Ottimista, N-years flag) | `feat/phase-2-mc-scenarios` | 📤 | Pushed — rebased on main — 131 tests |
 | 3 | Additional benchmarks (Golden Butterfly, Permanent, Swensen, Dalio AW official) | `feat/phase-3-benchmarks` | ⬜ | Branch from phase-2 |
 | 4 | Programmatic sensitivity sweep | `feat/phase-4-sensitivity` | ⬜ | Branch from phase-3 |
 | 5 | Rolling-window backtest | `feat/phase-5-rolling-window` | ⬜ | Branch from phase-4 |

@@ -244,6 +244,18 @@ def generate_markdown_report(
             lines.append(f"Block size: {mc_config['block_size']} months "
                          f"(preserves short-term autocorrelation of returns).")
         lines.append("")
+        lines.append("### Scenari espliciti — Prudente / Mediana / Ottimista")
+        lines.append("")
+        if getattr(monte_carlo_stats, "scenarios", None) is not None:
+            sc = monte_carlo_stats.scenarios
+            lines.append("![Monte Carlo scenarios](monte_carlo_scenarios.png)")
+            lines.append("")
+            lines.append("| Scenario | Percentile | Terminal wealth | Implied CAGR |")
+            lines.append("|---|---:|---:|---:|")
+            lines.append(f"| **Prudente** | 10° | {_fmt_nav(sc.prudente_wealth * start_nav)} | {_fmt_pct(sc.prudente_cagr)} |")
+            lines.append(f"| **Mediana** | 50° | {_fmt_nav(sc.mediana_wealth * start_nav)} | {_fmt_pct(sc.mediana_cagr)} |")
+            lines.append(f"| **Ottimista** | 90° | {_fmt_nav(sc.ottimista_wealth * start_nav)} | {_fmt_pct(sc.ottimista_cagr)} |")
+            lines.append("")
         lines.append("### Fan chart — percentile wealth paths")
         lines.append("")
         lines.append("![Monte Carlo fan](monte_carlo_fan.png)")

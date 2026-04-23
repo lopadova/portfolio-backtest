@@ -11,6 +11,8 @@ from src.monte_carlo import (
     block_bootstrap,
     simulate_wealth_paths,
     compute_mc_stats,
+    compute_scenarios,
+    MonteCarloScenarios,
 )
 
 
@@ -95,3 +97,48 @@ class TestMCStats:
         stats = compute_mc_stats(wealth, n_months=24)
         # P(DD > 20%) should be ~100%
         assert stats.prob_drawdown_gt_20pct > 0.99
+
+    def test_scenarios_embedded_in_stats(self):
+        """MonteCarloStats should embed MonteCarloScenarios by default."""
+        rng = np.random.default_rng(42)
+        returns = rng.normal(0.005, 0.03, (1000, 60))
+        wealth = simulate_wealth_paths(returns)
+        stats = compute_mc_stats(wealth, n_months=60)
+        assert stats.scenarios is not None
+        assert isinstance(stats.scenarios, MonteCarloScenarios)
+
+
+class TestScenarios:
+    def test_percentile_ordering(self):
+        """Prudente (10°) < Mediana (50°) < Ottimista (90°)."""
+        rng = np.random.default_rng(42)
+        returns = rng.normal(0.005, 0.03, (1000, 120))
+        wealth = simulate_wealth_paths(returns)
+        sc = compute_scenarios(wealth, n_months=120)
+        assert sc.prudente_wealth < sc.mediana_wealth < sc.ottimista_wealth
+        assert sc.prudente_cagr < sc.mediana_cagr < sc.ottimista_cagr
+
+    def test_scenarios_on_flat_paths_collapse(self):
+        """All-zero paths → all scenarios identical at 1.0."""
+        returns = np.zeros((100, 60))
+        wealth = simulate_wealth_paths(returns)
+        sc = compute_scenarios(wealth, n_months=60)
+        assert sc.prudente_wealth == pytest.approx(1.0, abs=1e-9)
+        assert sc.mediana_wealth == pytest.approx(1.0, abs=1e-9)
+        assert sc.ottimista_wealth == pytest.approx(1.0, abs=1e-9)
+
+    def test_cagr_consistent_with_wealth(self):
+        """CAGR should be recoverable from wealth over n_years."""
+        rng = np.random.default_rng(42)
+        returns = rng.normal(0.008, 0.035, (1000, 120))
+        wealth = simulate_wealth_paths(returns)
+        sc = compute_scenarios(wealth, n_months=120)
+        # mediana_wealth ** (1/10) - 1 should equal mediana_cagr
+        expected_cagr = sc.mediana_wealth ** (1.0 / sc.n_years) - 1.0
+        assert sc.mediana_cagr == pytest.approx(expected_cagr, rel=1e-6)
+
+    def test_n_years_propagated(self):
+        returns = np.zeros((10, 36))
+        wealth = simulate_wealth_paths(returns)
+        sc = compute_scenarios(wealth, n_months=36)
+        assert sc.n_years == 3.0

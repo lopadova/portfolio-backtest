@@ -60,6 +60,28 @@ def simulate_wealth_paths(simulated_returns: np.ndarray) -> np.ndarray:
 
 
 @dataclass
+class MonteCarloScenarios:
+    """
+    User-facing Monte Carlo scenarios (10th / 50th / 90th percentiles).
+
+    Framing:
+      - Prudente (10°): "pessimistic but not catastrophic" — only 10% of
+        simulated paths end worse than this
+      - Mediana (50°): central expectation
+      - Ottimista (90°): "favorable but not exceptional" — only 10% end better
+    """
+    n_years: float
+    # Wealth multipliers (multiply by starting NAV to get €)
+    prudente_wealth: float
+    mediana_wealth: float
+    ottimista_wealth: float
+    # Implied annualized CAGR over the horizon (from wealth multiplier)
+    prudente_cagr: float
+    mediana_cagr: float
+    ottimista_cagr: float
+
+
+@dataclass
 class MonteCarloStats:
     n_paths: int
     n_years: float
@@ -72,7 +94,37 @@ class MonteCarloStats:
     prob_drawdown_gt_20pct: float
     prob_drawdown_gt_40pct: float
     median_max_drawdown: float
-    pct5_max_drawdown: float   # "worst 5%"
+    pct5_max_drawdown: float
+    # Phase 2 scenarios — embedded for convenience
+    scenarios: MonteCarloScenarios = None
+
+
+def _wealth_to_cagr(wealth_multiplier: float, n_years: float) -> float:
+    """Convert a terminal wealth multiplier to an implied annualized CAGR."""
+    if wealth_multiplier <= 0 or n_years <= 0:
+        return float("nan")
+    return wealth_multiplier ** (1.0 / n_years) - 1.0
+
+
+def compute_scenarios(wealth_paths: np.ndarray, n_months: int) -> MonteCarloScenarios:
+    """
+    Compute the 3 user-facing scenarios (Prudente 10° / Mediana 50° / Ottimista 90°)
+    from Monte Carlo terminal wealth distribution.
+    """
+    terminal = wealth_paths[:, -1]
+    n_years = n_months / 12.0
+    prudente = float(np.percentile(terminal, 10))
+    mediana = float(np.percentile(terminal, 50))
+    ottimista = float(np.percentile(terminal, 90))
+    return MonteCarloScenarios(
+        n_years=n_years,
+        prudente_wealth=prudente,
+        mediana_wealth=mediana,
+        ottimista_wealth=ottimista,
+        prudente_cagr=_wealth_to_cagr(prudente, n_years),
+        mediana_cagr=_wealth_to_cagr(mediana, n_years),
+        ottimista_cagr=_wealth_to_cagr(ottimista, n_years),
+    )
 
 
 def compute_mc_stats(wealth_paths: np.ndarray, n_months: int) -> MonteCarloStats:
@@ -102,5 +154,6 @@ def compute_mc_stats(wealth_paths: np.ndarray, n_months: int) -> MonteCarloStats
         prob_drawdown_gt_20pct=float((max_dd < -0.20).mean()),
         prob_drawdown_gt_40pct=float((max_dd < -0.40).mean()),
         median_max_drawdown=float(np.median(max_dd)),
-        pct5_max_drawdown=float(np.percentile(max_dd, 5)),  # the worst 5%
+        pct5_max_drawdown=float(np.percentile(max_dd, 5)),
+        scenarios=compute_scenarios(wealth_paths, n_months),
     )
