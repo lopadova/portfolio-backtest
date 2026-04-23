@@ -97,6 +97,80 @@ def cvar(returns: pd.Series, alpha: float = 0.05) -> float:
     return float(tail.mean()) if len(tail) > 0 else float("nan")
 
 
+def average_drawdown(returns: pd.Series) -> float:
+    """
+    Average drawdown — mean of the drawdown series, considering only the
+    underwater values (drawdown < 0). Returned as a negative number.
+
+    This gives a different perspective than Max Drawdown: a portfolio with
+    one catastrophic -50% event and many small recoveries has a very negative
+    Max DD but a relatively mild Average DD. Conversely, a portfolio that
+    spends long periods 10% underwater has a modest Max DD but a larger
+    (more negative) Average DD.
+    """
+    wealth = cumulative_wealth(returns)
+    running_max = wealth.cummax()
+    drawdown = (wealth - running_max) / running_max
+    underwater = drawdown[drawdown < 0]
+    if len(underwater) == 0:
+        return 0.0
+    return float(underwater.mean())
+
+
+def max_drawdown_duration_months(returns: pd.Series) -> int:
+    """
+    Max Drawdown duration in months — duration (in months) of the worst
+    drawdown *episode*, measured from the peak preceding the trough to the
+    trough itself. This is specifically the duration of the single
+    worst peak-to-trough event, not the total underwater time.
+
+    Related to `longest_underwater_months`, which measures the longest
+    consecutive stretch of time below any prior peak; this function focuses
+    on the time-to-bottom of the worst single event.
+    """
+    wealth = cumulative_wealth(returns)
+    if len(wealth) < 2:
+        return 0
+    running_max = wealth.cummax()
+    drawdown = (wealth - running_max) / running_max
+    trough_idx = drawdown.idxmin()
+    # Find the peak *immediately* preceding the worst trough: the LAST time
+    # the drawdown returned to 0 (wealth == running_max) before the trough.
+    # Using index[-1] rather than index[0] matters when the equity curve
+    # reaches the same prior high multiple times (plateau / recovery / deeper
+    # crash) — index[0] would overstate the duration by starting from the
+    # first occurrence of the peak value rather than the most recent one.
+    pre_trough = wealth.loc[:trough_idx]
+    pre_trough_running_max = pre_trough.cummax()
+    peak_value = pre_trough_running_max.iloc[-1]
+    peak_candidates = pre_trough[pre_trough >= peak_value]
+    if len(peak_candidates) == 0:
+        return 0
+    peak_idx = peak_candidates.index[-1]
+    months = (trough_idx.year - peak_idx.year) * 12 + (trough_idx.month - peak_idx.month)
+    return int(months)
+
+
+def ulcer_performance_index(returns: pd.Series, risk_free_rate: float = 0.02) -> float:
+    """
+    Ulcer Performance Index (UPI) = (CAGR - risk_free_rate) / Ulcer Index.
+
+    Similar to Sharpe, but uses Ulcer Index (drawdown depth × duration)
+    as the risk measure instead of volatility. Popular in the drawdown-aware
+    risk management community; more meaningful for investors who experience
+    risk primarily as drawdowns rather than volatility.
+
+    Reference: Martin & McCann (1989), "The Investor's Guide to Fidelity Funds".
+    """
+    c = cagr(returns)
+    ui = ulcer_index(returns)
+    # Ulcer Index is in percentage-points; convert to decimal for ratio
+    ui_decimal = ui / 100.0
+    if ui_decimal <= 1e-12:
+        return float("nan")
+    return float((c - risk_free_rate) / ui_decimal)
+
+
 def longest_underwater_months(returns: pd.Series) -> int:
     """
     Longest underwater period — the longest stretch of months during which
@@ -140,13 +214,16 @@ def recovery_months_after_max_dd(returns: pd.Series) -> Optional[int]:
 @dataclass
 class PortfolioStats:
     name: str
-    cagr: float
-    annualized_vol: float
+    cagr: float                          # a.k.a. Annual Return
+    annualized_vol: float                # a.k.a. Volatility
     sharpe: float
     sortino: float
     max_drawdown: float
+    average_drawdown: float              # NEW
+    max_drawdown_duration_months: int    # NEW
     calmar: float
     ulcer_index: float
+    upi: float                           # NEW — Ulcer Performance Index
     cvar_5pct: float
     longest_underwater_months: int
     recovery_months: Optional[int]
@@ -175,8 +252,11 @@ def compute_all(name: str, returns: pd.Series, risk_free_rate: float = 0.02) -> 
         sharpe=sharpe_ratio(returns, risk_free_rate),
         sortino=sortino_ratio(returns, risk_free_rate),
         max_drawdown=max_drawdown(returns),
+        average_drawdown=average_drawdown(returns),
+        max_drawdown_duration_months=max_drawdown_duration_months(returns),
         calmar=calmar_ratio(returns),
         ulcer_index=ulcer_index(returns),
+        upi=ulcer_performance_index(returns, risk_free_rate),
         cvar_5pct=cvar(returns, 0.05),
         longest_underwater_months=longest_underwater_months(returns),
         recovery_months=recovery_months_after_max_dd(returns),

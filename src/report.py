@@ -38,8 +38,8 @@ def _fmt_nav(x: float) -> str:
 def _stats_table_markdown(stats_list: List[PortfolioStats]) -> str:
     """Build a Markdown summary stats table."""
     header = (
-        "| Portfolio | CAGR | Ann. Vol | Sharpe | Sortino | Max DD | Calmar | Ulcer | CVaR 5% | Worst Mo | Best Mo | % Pos Months | Total Return | Longest UW (mo) | Recovery (mo) |\n"
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n"
+        "| Portfolio | CAGR | Vol | Sharpe | Sortino | Max DD | Avg DD | Max DD dur. (mo) | Calmar | Ulcer | UPI | CVaR 5% | Worst Mo | Best Mo | % Pos Mo | Total Return | Longest UW (mo) | Recovery (mo) |\n"
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n"
     )
     rows = []
     for s in stats_list:
@@ -51,8 +51,11 @@ def _stats_table_markdown(stats_list: List[PortfolioStats]) -> str:
             f"| {_fmt_ratio(s.sharpe)} "
             f"| {_fmt_ratio(s.sortino)} "
             f"| {_fmt_pct(s.max_drawdown)} "
+            f"| {_fmt_pct(s.average_drawdown)} "
+            f"| {s.max_drawdown_duration_months} "
             f"| {_fmt_ratio(s.calmar)} "
             f"| {_fmt_ratio(s.ulcer_index, 1)} "
+            f"| {_fmt_ratio(s.upi)} "
             f"| {_fmt_pct(s.cvar_5pct)} "
             f"| {_fmt_pct(s.worst_month)} "
             f"| {_fmt_pct(s.best_month)} "
@@ -133,11 +136,15 @@ def generate_markdown_report(
     lines.append(_stats_table_markdown(stats_list))
     lines.append("")
     lines.append(
-        "**Metric glossary.** CAGR = compound annual growth rate. Ann. Vol = annualized "
-        "volatility of monthly returns. Sharpe / Sortino = risk-adjusted returns "
+        "**Metric glossary.** CAGR = compound annual growth rate (a.k.a. Annual Return). "
+        "Vol = annualized volatility of monthly returns. Sharpe / Sortino = risk-adjusted returns "
         "(annualized, ~2% risk-free assumed). Max DD = worst peak-to-trough loss. "
-        "Calmar = CAGR / |Max DD|. Ulcer Index = RMS drawdown depth. CVaR 5% = average "
-        "return in the worst 5% of months. Longest UW = longest underwater period in months. "
+        "Avg DD = average drawdown (mean of underwater values — more stable measure than Max DD). "
+        "Max DD dur. = duration in months of the single worst peak-to-trough event. "
+        "Calmar = CAGR / |Max DD|. Ulcer Index = RMS drawdown depth (Martin 1989). "
+        "UPI = Ulcer Performance Index = (CAGR - RF) / Ulcer Index — drawdown-aware Sharpe analog. "
+        "CVaR 5% = average return in the worst 5% of months (Expected Shortfall). "
+        "Longest UW = longest consecutive months below prior all-time high. "
         "Recovery = months from worst drawdown bottom to new all-time high."
     )
     lines.append("")
