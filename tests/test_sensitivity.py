@@ -4,6 +4,8 @@ Unit tests for src/sensitivity.py — programmatic parameter sweep.
 
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")  # non-interactive backend for headless/CI runs
 import numpy as np
 import pandas as pd
 import pytest
@@ -35,6 +37,18 @@ class TestParseRangeToValues:
     def test_error_when_nothing_provided(self):
         with pytest.raises(ValueError):
             parse_range_to_values(range_tuple=None, step=None, values_list=None)
+
+    def test_step_must_be_positive(self):
+        """step <= 0 should raise ValueError (avoids numpy edge cases / infinite loops)."""
+        with pytest.raises(ValueError, match=r"--step must be > 0"):
+            parse_range_to_values(range_tuple=(0.10, 0.25), step=0, values_list=None)
+        with pytest.raises(ValueError, match=r"--step must be > 0"):
+            parse_range_to_values(range_tuple=(0.10, 0.25), step=-0.01, values_list=None)
+
+    def test_low_must_be_le_high(self):
+        """low > high should raise (avoids silently empty result from np.arange)."""
+        with pytest.raises(ValueError, match=r"must be <= high"):
+            parse_range_to_values(range_tuple=(0.25, 0.10), step=0.025, values_list=None)
 
 
 class TestApplyOverride:
@@ -70,6 +84,79 @@ class TestApplyOverride:
     def test_unsupported_param_raises(self):
         with pytest.raises(ValueError):
             _apply_param_override("unknown_param", 0.1)
+
+    def test_value_must_be_finite(self):
+        """NaN / Inf / non-numeric value should raise ValueError."""
+        snap = _snapshot_config()
+        try:
+            with pytest.raises(ValueError, match=r"finite number"):
+                _apply_param_override("gold", float("nan"))
+            with pytest.raises(ValueError, match=r"finite number"):
+                _apply_param_override("gold", float("inf"))
+            with pytest.raises(ValueError, match=r"finite number"):
+                _apply_param_override("gold", "not a number")
+        finally:
+            _restore_config(snap)
+
+    def test_weight_out_of_range_raises(self):
+        """Weight-like params must be in [0, 1]."""
+        snap = _snapshot_config()
+        try:
+            with pytest.raises(ValueError, match=r"\[0, 1\]"):
+                _apply_param_override("gold", -0.1)
+            with pytest.raises(ValueError, match=r"\[0, 1\]"):
+                _apply_param_override("gold", 1.1)
+        finally:
+            _restore_config(snap)
+
+    def test_gold_override_would_drive_cash_negative(self):
+        """Sweeping gold too high should raise rather than silently producing cash < 0."""
+        snap = _snapshot_config()
+        try:
+            # Cash default is 0.11; gold default ~0.18. Setting gold=0.5 → delta=0.32 → cash=-0.21
+            with pytest.raises(ValueError, match=r"drive cash negative"):
+                _apply_param_override("gold", 0.50)
+        finally:
+            _restore_config(snap)
+
+    def test_rebalance_freq_rejects_non_integer(self):
+        """Floats that are not exact integers must be rejected (no silent truncation)."""
+        snap = _snapshot_config()
+        try:
+            with pytest.raises(ValueError, match=r"must be an integer"):
+                _apply_param_override("rebalance_freq", 2.5)
+        finally:
+            _restore_config(snap)
+
+    def test_rebalance_freq_rejects_non_divisor(self):
+        """5 is a valid positive integer but not a divisor of 12 → must raise."""
+        snap = _snapshot_config()
+        try:
+            with pytest.raises(ValueError, match=r"divisor of 12"):
+                _apply_param_override("rebalance_freq", 5)
+            with pytest.raises(ValueError, match=r"divisor of 12"):
+                _apply_param_override("rebalance_freq", 7)
+        finally:
+            _restore_config(snap)
+
+    def test_equity_sleeve_cannot_exceed_absorb_capacity(self):
+        """Setting equity sleeve too high should raise rather than drive absorb_key negative."""
+        snap = _snapshot_config()
+        try:
+            # put_write default ~0.131, nasdaq_top30 default ~0.117 (absorb target)
+            # Setting put_write=0.30 → delta=0.17 → nasdaq = 0.117 - 0.17 = -0.05 (negative)
+            with pytest.raises(ValueError, match=r"drive .* negative"):
+                _apply_param_override("put_write", 0.30)
+        finally:
+            _restore_config(snap)
+
+
+class TestSweepValidation:
+    def test_empty_values_raises(self):
+        """run_sensitivity_sweep with empty values list must raise ValueError."""
+        bundle = _generate_synthetic_bundle()
+        with pytest.raises(ValueError, match=r"empty"):
+            run_sensitivity_sweep(bundle, "gold", [])
 
 
 class TestSweep:

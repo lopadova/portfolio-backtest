@@ -24,8 +24,8 @@ import matplotlib.ticker as mtick
 
 from . import portfolio as portfolio_cfg
 from .data_loader import DataBundle
-from .rebalance import simulate_portfolio, build_target_weights
-from .metrics import compute_all
+from .rebalance import simulate_portfolio
+from .metrics import compute_all, cumulative_wealth
 
 
 # ============================================================================
@@ -70,32 +70,87 @@ def _apply_param_override(param_name: str, value: float) -> None:
       - For equity-internal changes (put_write, nasdaq_top30, etc.): absorb
         from another equity sleeve, preserving the equity total
       - For non-weight params (options_budget, rebalance_freq): direct mutation
+
+    Raises ValueError if:
+      - Value is not a finite number
+      - For weight-like params: value is outside [0, 1] or produces a negative
+        balance in the absorbing sleeve (cash or alternate equity sleeve)
+      - For rebalance_freq: value is not a positive integer divisor of 12
     """
+    # Global input validation
+    if not isinstance(value, (int, float)) or not np.isfinite(value):
+        raise ValueError(f"Sensitivity value must be a finite number, got {value!r}")
+
     if param_name == "gold":
+        if not (0.0 <= value <= 1.0):
+            raise ValueError(f"gold weight must be in [0, 1], got {value}")
         delta = value - portfolio_cfg.WEIGHTS["gold"]
+        new_cash = portfolio_cfg.WEIGHTS["cash"] - delta
+        if new_cash < 0.0:
+            raise ValueError(
+                f"gold={value} would drive cash negative ({new_cash:.4f}). "
+                f"Current cash = {portfolio_cfg.WEIGHTS['cash']:.4f}, "
+                f"current gold = {portfolio_cfg.WEIGHTS['gold']:.4f}"
+            )
         portfolio_cfg.WEIGHTS["gold"] = value
-        # Absorb from cash (simplest — cash is residual, not used by engine beyond target)
-        portfolio_cfg.WEIGHTS["cash"] -= delta
+        portfolio_cfg.WEIGHTS["cash"] = new_cash
     elif param_name == "dbi":
+        if not (0.0 <= value <= 1.0):
+            raise ValueError(f"dbi weight must be in [0, 1], got {value}")
         delta = value - portfolio_cfg.WEIGHTS["dbi"]
+        new_cash = portfolio_cfg.WEIGHTS["cash"] - delta
+        if new_cash < 0.0:
+            raise ValueError(
+                f"dbi={value} would drive cash negative ({new_cash:.4f}). "
+                f"Current cash = {portfolio_cfg.WEIGHTS['cash']:.4f}, "
+                f"current dbi = {portfolio_cfg.WEIGHTS['dbi']:.4f}"
+            )
         portfolio_cfg.WEIGHTS["dbi"] = value
-        portfolio_cfg.WEIGHTS["cash"] -= delta
+        portfolio_cfg.WEIGHTS["cash"] = new_cash
     elif param_name == "options_budget":
+        if not (0.0 <= value <= 1.0):
+            raise ValueError(f"options_budget must be in [0, 1] (as fraction of NAV), got {value}")
         portfolio_cfg.OPTIONS.budget_nav_per_year = value
     elif param_name == "rebalance_freq":
-        # value = rebalances per year; evenly space months
+        # value must be a positive integer divisor of 12 for evenly-spaced months.
+        # Floats that are not exact integers are rejected to avoid silent truncation.
+        if not float(value).is_integer():
+            raise ValueError(
+                f"rebalance_freq must be an integer, got {value} "
+                f"(integer truncation would silently change the result)"
+            )
         freq = int(value)
-        if freq <= 0 or freq > 12:
-            raise ValueError(f"rebalance_freq must be 1-12, got {freq}")
+        valid_divisors = (1, 2, 3, 4, 6, 12)
+        if freq not in valid_divisors:
+            raise ValueError(
+                f"rebalance_freq must be a divisor of 12 (one of {valid_divisors}), "
+                f"got {freq}. Non-divisors would produce unevenly-spaced rebalance months."
+            )
         step = 12 // freq
         portfolio_cfg.REBALANCE.months = tuple(range(1, 13, step))[:freq]
     elif param_name in ("put_write", "nasdaq_top30", "momentum", "quality"):
+        if not (0.0 <= value <= 1.0):
+            raise ValueError(f"{param_name} weight must be in [0, 1], got {value}")
         # Adjust equity breakdown, absorbing delta from another equity sleeve
         # to preserve WEIGHTS["equity"] total
         delta = value - portfolio_cfg.EQUITY[param_name]
-        portfolio_cfg.EQUITY[param_name] = value
         absorb_key = "put_write" if param_name != "put_write" else "nasdaq_top30"
-        portfolio_cfg.EQUITY[absorb_key] -= delta
+        new_absorb = portfolio_cfg.EQUITY[absorb_key] - delta
+        if new_absorb < 0.0:
+            raise ValueError(
+                f"{param_name}={value} would drive {absorb_key} negative ({new_absorb:.4f}). "
+                f"Current {absorb_key} = {portfolio_cfg.EQUITY[absorb_key]:.4f}. "
+                f"Reduce the sweep upper bound or use a parameter with more room."
+            )
+        portfolio_cfg.EQUITY[param_name] = value
+        portfolio_cfg.EQUITY[absorb_key] = new_absorb
+        # Sanity check: equity total still matches WEIGHTS["equity"]
+        equity_total = sum(portfolio_cfg.EQUITY.values())
+        if abs(equity_total - portfolio_cfg.WEIGHTS["equity"]) > 0.002:
+            raise ValueError(
+                f"After applying {param_name}={value}, equity sleeves sum to "
+                f"{equity_total:.4f}, expected {portfolio_cfg.WEIGHTS['equity']:.4f}"
+            )
     else:
         raise ValueError(f"Unsupported sensitivity parameter: {param_name}. Choose from {list(SUPPORTED_PARAMS)}")
 
@@ -125,12 +180,28 @@ def run_sensitivity_sweep(
     param_name: str,
     values: List[float],
     risk_free_rate: float = 0.02,
+    start_nav: float = 100_000.0,
 ) -> pd.DataFrame:
     """
     Run the portfolio backtest once per value of `param_name`, collecting
     summary statistics. Returns a DataFrame indexed by param_value with
     one row per sweep point.
+
+    When sweeping `options_budget`, the options overlay is included in the
+    simulation (otherwise mutating OPTIONS.budget_nav_per_year would have
+    no effect on returns). For all other parameters, the core portfolio
+    (no overlay) is used — isolating the parameter's impact on the
+    underlying allocation.
     """
+    if not values:
+        raise ValueError(
+            "values list is empty — no sweep points to run. "
+            "Check --range/--step or --values CLI arguments."
+        )
+
+    # When sweeping options_budget, include the overlay to actually measure its effect
+    include_overlay = (param_name == "options_budget")
+
     snapshot = _snapshot_config()
     results: List[SensitivityResult] = []
 
@@ -139,13 +210,26 @@ def run_sensitivity_sweep(
             _restore_config(snapshot)  # always start from clean baseline
             _apply_param_override(param_name, value)
 
-            # Run the core backtest (no options overlay — we evaluate the
-            # parameter's effect on the underlying portfolio, not overlay)
+            # Core portfolio
             returns = simulate_portfolio(
                 bundle.monthly_returns_eur,
                 bundle.btc_activation_date,
                 apply_ter=True,
             )
+
+            # Options overlay (only when sweeping options_budget)
+            if include_overlay:
+                from .options_overlay import simulate_options_overlay
+                nav_series = cumulative_wealth(returns, start_nav)
+                overlay_returns = simulate_options_overlay(
+                    spy_daily=bundle.spy_daily,
+                    qqq_daily=bundle.qqq_daily,
+                    vix_daily=bundle.vix_daily,
+                    rf_daily=bundle.rf_daily,
+                    nav_series=nav_series,
+                )
+                returns = returns + overlay_returns.reindex(returns.index).fillna(0.0)
+
             stats = compute_all("sensitivity_run", returns, risk_free_rate)
             results.append(SensitivityResult(
                 param_name=param_name,
@@ -181,11 +265,13 @@ def plot_sensitivity_results(df: pd.DataFrame, param_name: str, path: Path):
     ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=1))
     ax.grid(True, alpha=0.3)
 
-    # Max DD (top-right) — plotted as positive magnitude for clarity
+    # Max DD (top-right) — plotted as positive magnitude (|Max DD|) for clarity.
+    # compute_all returns max_drawdown as a negative fraction; we take abs()
+    # so the axis shows positive %, which matches the "higher bar = worse" intuition.
     ax = axes[0, 1]
-    ax.plot(df.index, df["max_drawdown"] * 100, marker="o", linewidth=2, color="#d62728")
-    ax.set_title("Max Drawdown", fontweight="bold")
-    ax.set_ylabel("Max DD")
+    ax.plot(df.index, df["max_drawdown"].abs() * 100, marker="o", linewidth=2, color="#d62728")
+    ax.set_title("|Max Drawdown|", fontweight="bold")
+    ax.set_ylabel("|Max DD| (magnitude)")
     ax.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
     ax.grid(True, alpha=0.3)
 
@@ -216,10 +302,20 @@ def plot_sensitivity_results(df: pd.DataFrame, param_name: str, path: Path):
 def parse_range_to_values(range_tuple: Optional[tuple], step: Optional[float], values_list: Optional[List[float]]) -> List[float]:
     """
     Convert CLI range/step/values arguments into a list of parameter values.
+
+    Raises ValueError on malformed input:
+      - neither --range/--step nor --values provided
+      - step <= 0 (would cause numpy to error or loop infinitely)
+      - low > high (would silently produce an empty list)
     """
     if values_list is not None and len(values_list) > 0:
         return [float(v) for v in values_list]
     if range_tuple is None or step is None:
         raise ValueError("Either --range LOW HIGH --step N or --values V1 V2 ... must be provided")
     low, high = float(range_tuple[0]), float(range_tuple[1])
-    return list(np.arange(low, high + step / 2, step))
+    step_f = float(step)
+    if step_f <= 0:
+        raise ValueError(f"--step must be > 0, got {step_f}")
+    if low > high:
+        raise ValueError(f"--range: low ({low}) must be <= high ({high})")
+    return list(np.arange(low, high + step_f / 2, step_f))

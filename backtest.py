@@ -314,7 +314,7 @@ def main():
     print(f"Loaded {len(bundle.monthly_returns_eur)} months of data")
 
     if args.sensitivity:
-        run_sensitivity(args)
+        run_sensitivity(args, bundle=bundle)
         return
 
     # Main backtest
