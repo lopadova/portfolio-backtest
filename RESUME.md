@@ -38,8 +38,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ merged to main · 📤 pushed
 | 3 | Additional benchmarks (Golden Butterfly, Permanent, Swensen, Dalio AW official) | `feat/phase-3-benchmarks` | ✅ | Merged — PR #3 (incl. Copilot fixes, 142 tests) |
 | 4 | Programmatic sensitivity sweep | `feat/phase-4-sensitivity` | ✅ | Merged — PR #4 (incl. Copilot fixes, 162 tests) |
 | 5 | Rolling-window backtest | `feat/phase-5-rolling-window` | ✅ | Merged — PRs #5 + #6 (incl. Copilot fixes, 180 tests) |
-| 6 | Efficient Frontier (Markowitz + 50k random) | `feat/phase-6-efficient-frontier` | 📤 | Pushed — rebased on main |
-| 7 | Italian tax modeling (26% CGT + 4y carry) | `feat/phase-7-tax-it` | ⬜ | Branch from phase-6 |
+| 6 | Efficient Frontier (Markowitz + 50k random + interactive Plotly) | `feat/phase-6-efficient-frontier` | ✅ | Merged — PR #7 (incl. Copilot fixes + interactive chart, 193 tests) |
+| 7 | Italian tax modeling (26% CGT + 4y carry) | `feat/phase-7-tax-it` | 📤 | Pushed — rebased on main |
 | 8 | FIRE calculator (2-phase + Italian mortality tables + pension + Black Swan) | `feat/phase-8-fire` | ⬜ | Branch from phase-7 |
 | 9 | AI analysis (OpenAI/Anthropic/OpenRouter/Local, default=OpenRouter) | `feat/phase-9-ai-analysis` | ⬜ | Branch from phase-8 |
 | 10 | Streamlit dashboard (form + run + save + deploy config for Cloud/HF) | `feat/phase-10-dashboard` | ⬜ | Branch from phase-9 |
