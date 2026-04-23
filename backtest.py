@@ -327,24 +327,34 @@ def main():
         return
 
     if args.efficient_frontier:
-        from src.efficient_frontier import run_efficient_frontier, plot_efficient_frontier
-        print(f"\nRunning efficient frontier analysis ({args.n_random:,} random portfolios + Markowitz)...")
-        # First run the core portfolio once to have the Four Umbrellas reference
-        from src.rebalance import simulate_portfolio
-        fu_returns = simulate_portfolio(
-            bundle.monthly_returns_eur, bundle.btc_activation_date, apply_ter=True,
+        from src.efficient_frontier import (
+            run_efficient_frontier, plot_efficient_frontier,
+            plot_efficient_frontier_interactive,
         )
-        random_eval_df, key_portfolios, frontier_df, fu_point = run_efficient_frontier(
-            bundle, four_umbrellas_returns=fu_returns, n_random=args.n_random,
+        print(f"\nRunning efficient frontier analysis ({args.n_random:,} random portfolios + Markowitz)...")
+        # Note: the Four Umbrellas reference is now computed inside
+        # run_efficient_frontier() on the *same* sleeve universe as the
+        # frontier — no need to pass a full-portfolio return series (which
+        # would include pension/cash effects that aren't comparable).
+        random_eval_df, weights_matrix, key_portfolios, frontier_df, fu_point, asset_names = run_efficient_frontier(
+            bundle, n_random=args.n_random,
         )
         output_dir = Path(args.output_dir) / "efficient_frontier"
         output_dir.mkdir(parents=True, exist_ok=True)
         random_eval_df.to_csv(output_dir / "random_portfolios.csv", index=False)
         frontier_df.to_csv(output_dir / "frontier_line.csv", index=False)
+        # Static PNG
         plot_efficient_frontier(
             random_eval_df, key_portfolios, frontier_df, fu_point,
             output_dir / "efficient_frontier.png",
         )
+        # Interactive Plotly HTML — click/hover any point to see its full allocation
+        html_path = output_dir / "efficient_frontier_interactive.html"
+        if plot_efficient_frontier_interactive(
+            random_eval_df, weights_matrix, asset_names,
+            key_portfolios, frontier_df, fu_point, html_path,
+        ):
+            print(f"  + interactive HTML: {html_path.name} (open in browser to click points)")
         print("\nKey portfolios found:")
         for key, point in key_portfolios.items():
             print(f"  {point.label:15s}: "

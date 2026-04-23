@@ -126,15 +126,21 @@ def find_key_portfolios(
 def markowitz_frontier(
     annual_mean: np.ndarray,
     annual_cov: np.ndarray,
+    asset_names: Optional[List[str]] = None,
     n_points: int = 50,
     rf: float = 0.02,
 ) -> pd.DataFrame:
     """
-    Trace the efficient frontier analytically: for each target vol level,
-    find the portfolio with maximum expected return subject to:
+    Trace the efficient frontier by sweeping target annual return levels and,
+    for each target return, finding the long-only fully invested portfolio
+    with minimum variance subject to:
         - sum(weights) = 1
         - weights >= 0 (long-only)
-        - portfolio_vol = target_vol
+        - w @ annual_mean = target_return
+
+    Returns a DataFrame with columns: expected_return, volatility, sharpe,
+    and (when asset_names is provided) one `w_<asset>` column per asset so
+    the chart can surface the full allocation for each point on hover/click.
     """
     n_assets = len(annual_mean)
     min_ret = annual_mean.min()
@@ -162,11 +168,15 @@ def markowitz_frontier(
         if result.success:
             w = result.x
             port_ret, port_vol, sharpe = _portfolio_stats(w, annual_mean, annual_cov, rf)
-            frontier_points.append({
+            row = {
                 "expected_return": port_ret,
                 "volatility": port_vol,
                 "sharpe": sharpe,
-            })
+            }
+            if asset_names is not None:
+                for i, name in enumerate(asset_names):
+                    row[f"w_{name}"] = float(w[i])
+            frontier_points.append(row)
 
     return pd.DataFrame(frontier_points)
 
@@ -256,16 +266,237 @@ def plot_efficient_frontier(
     plt.close(fig)
 
 
+def plot_efficient_frontier_interactive(
+    random_eval_df: pd.DataFrame,
+    weights_matrix: np.ndarray,
+    asset_names: List[str],
+    key_portfolios: Dict[str, FrontierPoint],
+    frontier_df: pd.DataFrame,
+    four_umbrellas_point: Optional[FrontierPoint],
+    path: Path,
+) -> bool:
+    """
+    Produce an **interactive** HTML efficient-frontier chart using Plotly.
+    Hover (and click) each point shows the full portfolio allocation.
+
+    Returns True if plotly is available and the chart was written, False
+    if plotly is missing (graceful skip — user gets the static PNG anyway).
+    """
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        print("  (plotly not installed — skipping interactive frontier. "
+              "`pip install plotly` to enable.)")
+        return False
+
+    def _weights_hover_text(weights_dict_or_array, top_n: int = 6) -> str:
+        """Format a weights vector as a compact HTML hover string (top-N by weight)."""
+        if isinstance(weights_dict_or_array, dict):
+            items = list(weights_dict_or_array.items())
+        else:
+            items = list(zip(asset_names, weights_dict_or_array))
+        items = sorted(items, key=lambda x: -abs(x[1]))[:top_n]
+        lines = [f"• {k}: {v * 100:.1f}%" for k, v in items if v > 0.005]
+        return "<br>".join(lines) if lines else "(all weights ~0)"
+
+    fig = go.Figure()
+
+    # --- Random cloud (sampled for performance: max 10k points shown) ---
+    n_random = len(random_eval_df)
+    if n_random > 10_000:
+        # Sample 10k indices uniformly for the display (keeps hover snappy)
+        sample_idx = np.random.default_rng(42).choice(n_random, size=10_000, replace=False)
+    else:
+        sample_idx = np.arange(n_random)
+
+    hover_texts = [
+        f"Return: {random_eval_df.iloc[i]['expected_return'] * 100:.2f}%<br>"
+        f"Vol: {random_eval_df.iloc[i]['volatility'] * 100:.2f}%<br>"
+        f"Sharpe: {random_eval_df.iloc[i]['sharpe']:.2f}<br><br>"
+        f"<b>Top weights:</b><br>{_weights_hover_text(weights_matrix[i])}"
+        for i in sample_idx
+    ]
+    fig.add_trace(go.Scatter(
+        x=random_eval_df.iloc[sample_idx]["volatility"] * 100,
+        y=random_eval_df.iloc[sample_idx]["expected_return"] * 100,
+        mode="markers",
+        marker=dict(
+            size=4,
+            color=random_eval_df.iloc[sample_idx]["sharpe"],
+            colorscale="Viridis",
+            colorbar=dict(title="Sharpe", thickness=14),
+            opacity=0.45,
+            line=dict(width=0),
+        ),
+        name=f"{len(sample_idx):,} random portfolios",
+        text=hover_texts,
+        hoverinfo="text",
+    ))
+
+    # --- Markowitz frontier line (each point carries full weights) ---
+    if len(frontier_df) > 0:
+        sorted_df = frontier_df.sort_values("volatility").reset_index(drop=True)
+        weight_cols = [c for c in sorted_df.columns if c.startswith("w_")]
+        frontier_hover = []
+        for _, row in sorted_df.iterrows():
+            weights_on_point = {c.removeprefix("w_"): row[c] for c in weight_cols}
+            frontier_hover.append(
+                f"<b>Frontier point</b><br>"
+                f"Return: {row['expected_return'] * 100:.2f}%<br>"
+                f"Vol: {row['volatility'] * 100:.2f}%<br>"
+                f"Sharpe: {row['sharpe']:.2f}<br><br>"
+                f"<b>Allocation:</b><br>{_weights_hover_text(weights_on_point)}"
+            )
+        fig.add_trace(go.Scatter(
+            x=sorted_df["volatility"] * 100,
+            y=sorted_df["expected_return"] * 100,
+            mode="lines+markers",
+            line=dict(color="#d62728", width=2.5),
+            marker=dict(size=7, color="#d62728", line=dict(width=1, color="black")),
+            name="Efficient Frontier (Markowitz)",
+            text=frontier_hover,
+            hoverinfo="text",
+        ))
+
+    # --- Key portfolios (Max Sharpe, Min Vol, Max Return) ---
+    marker_configs = {
+        "max_sharpe": ("star", "#ff7f0e", 22, "Max Sharpe"),
+        "min_vol":    ("diamond", "#2ca02c", 18, "Min Volatility"),
+        "max_return": ("triangle-up", "#9467bd", 20, "Max Return"),
+    }
+    for key, point in key_portfolios.items():
+        symbol, color, size, label = marker_configs[key]
+        fig.add_trace(go.Scatter(
+            x=[point.volatility * 100],
+            y=[point.expected_return * 100],
+            mode="markers",
+            marker=dict(
+                symbol=symbol, color=color, size=size,
+                line=dict(width=1.5, color="black"),
+            ),
+            name=f"{label} (Sharpe {point.sharpe:.2f})",
+            text=[
+                f"<b>{label}</b><br>"
+                f"Return: {point.expected_return * 100:.2f}%<br>"
+                f"Vol: {point.volatility * 100:.2f}%<br>"
+                f"Sharpe: {point.sharpe:.2f}<br><br>"
+                f"<b>Allocation:</b><br>{_weights_hover_text(point.weights)}"
+            ],
+            hoverinfo="text",
+        ))
+
+    # --- Four Umbrellas reference ---
+    if four_umbrellas_point is not None:
+        fig.add_trace(go.Scatter(
+            x=[four_umbrellas_point.volatility * 100],
+            y=[four_umbrellas_point.expected_return * 100],
+            mode="markers",
+            marker=dict(
+                symbol="circle", color="#1f77b4", size=18,
+                line=dict(width=2, color="black"),
+            ),
+            name=f"Four Umbrellas (Sharpe {four_umbrellas_point.sharpe:.2f})",
+            text=[
+                f"<b>Four Umbrellas</b> (liquid sleeves, normalized)<br>"
+                f"Return: {four_umbrellas_point.expected_return * 100:.2f}%<br>"
+                f"Vol: {four_umbrellas_point.volatility * 100:.2f}%<br>"
+                f"Sharpe: {four_umbrellas_point.sharpe:.2f}<br><br>"
+                f"<b>Allocation:</b><br>{_weights_hover_text(four_umbrellas_point.weights)}"
+            ],
+            hoverinfo="text",
+        ))
+
+    fig.update_layout(
+        title=dict(
+            text=f"Efficient Frontier — {n_random:,} random + Markowitz"
+                 f" <span style='font-size:12px'>(hover / click any point to see its allocation)</span>",
+            x=0.5, xanchor="center",
+        ),
+        xaxis=dict(title="Annualized Volatility (%)", gridcolor="#eeeeee"),
+        yaxis=dict(title="Expected Return (annualized, %)", gridcolor="#eeeeee"),
+        hovermode="closest",
+        plot_bgcolor="white",
+        height=720,
+        legend=dict(x=1.08, y=1.0, xanchor="left"),
+        margin=dict(l=60, r=240, t=80, b=60),
+    )
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.write_html(str(path), include_plotlyjs="cdn", full_html=True)
+    return True
+
+
+def _compute_four_umbrellas_point_on_universe(
+    sleeve_returns: pd.DataFrame,
+    annual_mean: pd.Series,
+    annual_cov: pd.DataFrame,
+    risk_free_rate: float,
+) -> Optional[FrontierPoint]:
+    """
+    Compute the Four Umbrellas reference point on the *same* sleeve universe
+    and date index used for the frontier (not on the full simulate_portfolio
+    series, which would include pension/cash/TER effects and wouldn't be
+    directly comparable to the cloud + frontier).
+
+    Strategy: read the Four Umbrellas weights directly from portfolio.py
+    (WEIGHTS / EQUITY / CRYPTO / BONDS / EM_SATELLITES), filter to only the
+    sleeves present in `sleeve_returns.columns`, and normalize to sum=1.0.
+    This gives the Four Umbrellas "liquid-sleeves-only" position on the
+    frontier's exact coordinate system.
+    """
+    from . import portfolio as pf
+
+    raw_weights: Dict[str, float] = {}
+    raw_weights["gold"] = pf.WEIGHTS.get("gold", 0.0)
+    raw_weights["dbi"] = pf.WEIGHTS.get("dbi", 0.0)
+    for k, v in pf.EQUITY.items():
+        raw_weights[k] = v
+    for k, v in pf.CRYPTO.items():
+        raw_weights[k] = v
+    for k, v in pf.BONDS.items():
+        raw_weights[k] = v
+    for k, v in pf.EM_SATELLITES.items():
+        raw_weights[k] = v
+
+    # Filter to sleeves present in the universe, normalize to 1.0
+    present = {k: v for k, v in raw_weights.items() if k in sleeve_returns.columns and v > 0}
+    total = sum(present.values())
+    if total <= 0:
+        return None
+    normalized = {k: v / total for k, v in present.items()}
+
+    # Vectorized stats on the exact universe the frontier uses
+    weight_vec = np.array([normalized.get(c, 0.0) for c in sleeve_returns.columns])
+    port_ret = float(weight_vec @ annual_mean.values)
+    port_vol = float(np.sqrt(weight_vec @ annual_cov.values @ weight_vec))
+    sharpe = (port_ret - risk_free_rate) / port_vol if port_vol > 1e-12 else float("nan")
+    return FrontierPoint(
+        weights=normalized,
+        expected_return=port_ret,
+        volatility=port_vol,
+        sharpe=sharpe,
+        label="Four Umbrellas (liquid sleeves, normalized)",
+    )
+
+
 def run_efficient_frontier(
     bundle: DataBundle,
-    four_umbrellas_returns: Optional[pd.Series] = None,
     n_random: int = 50_000,
     risk_free_rate: float = 0.02,
     seed: int = 42,
-) -> Tuple[pd.DataFrame, Dict[str, FrontierPoint], pd.DataFrame, Optional[FrontierPoint]]:
+    include_four_umbrellas_reference: bool = True,
+) -> Tuple[pd.DataFrame, np.ndarray, Dict[str, FrontierPoint], pd.DataFrame, Optional[FrontierPoint], List[str]]:
     """
     Orchestrate the full efficient-frontier analysis on the sleeve returns in
-    the data bundle. Returns: (random_eval_df, key_portfolios, frontier_df, four_umbrellas_point).
+    the data bundle.
+
+    Returns: (random_eval_df, weights_matrix, key_portfolios, frontier_df, four_umbrellas_point, asset_names)
+
+    NOTE: Four Umbrellas reference is now computed on the *identical sleeve
+    universe + date range* as the frontier itself (liquid sleeves only,
+    dropna-aligned), making the comparison coordinate-exact. The old API
+    (passing four_umbrellas_returns from a full simulate_portfolio call)
+    was not directly comparable because it included pension/cash/TER effects.
     """
     # Use only non-pension sleeves for the frontier — pension is locked,
     # so including it as a free weight would be misleading
@@ -283,22 +514,17 @@ def run_efficient_frontier(
     random_eval_df = evaluate_portfolios(weights_matrix, annual_mean.values, annual_cov.values, rf=risk_free_rate)
     key_portfolios = find_key_portfolios(weights_matrix, random_eval_df, asset_names)
 
-    # Markowitz frontier
-    frontier_df = markowitz_frontier(annual_mean.values, annual_cov.values, rf=risk_free_rate)
+    # Markowitz frontier (with per-point weights for interactive chart)
+    frontier_df = markowitz_frontier(
+        annual_mean.values, annual_cov.values,
+        asset_names=asset_names, rf=risk_free_rate,
+    )
 
-    # Four Umbrellas reference
+    # Four Umbrellas reference — computed on the same universe as the frontier
     four_umbrellas_point = None
-    if four_umbrellas_returns is not None and len(four_umbrellas_returns) > 0:
-        fu_returns = four_umbrellas_returns.dropna()
-        fu_mean = float(fu_returns.mean() * 12)
-        fu_vol = float(fu_returns.std() * np.sqrt(12))
-        fu_sharpe = (fu_mean - risk_free_rate) / fu_vol if fu_vol > 1e-12 else float("nan")
-        four_umbrellas_point = FrontierPoint(
-            weights={},
-            expected_return=fu_mean,
-            volatility=fu_vol,
-            sharpe=fu_sharpe,
-            label="Four Umbrellas",
+    if include_four_umbrellas_reference:
+        four_umbrellas_point = _compute_four_umbrellas_point_on_universe(
+            sleeve_returns, annual_mean, annual_cov, risk_free_rate,
         )
 
-    return random_eval_df, key_portfolios, frontier_df, four_umbrellas_point
+    return random_eval_df, weights_matrix, key_portfolios, frontier_df, four_umbrellas_point, asset_names
