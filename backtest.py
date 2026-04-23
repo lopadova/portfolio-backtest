@@ -34,7 +34,7 @@ from src.plots import (
     plot_rolling_sharpe, plot_rolling_returns, plot_crisis_zoom,
     plot_annual_returns, plot_risk_return_scatter, plot_return_distribution,
     plot_metrics_comparison, plot_correlation_heatmap,
-    plot_monte_carlo_fan, plot_mc_distribution,
+    plot_monte_carlo_fan, plot_mc_distribution, plot_mc_scenarios,
 )
 from src.report import generate_markdown_report
 from src.portfolio import (
@@ -59,7 +59,7 @@ def parse_args():
     # Monte Carlo
     p.add_argument("--monte-carlo", action="store_true", help="Run Monte Carlo block bootstrap simulation")
     p.add_argument("--mc-paths", type=int, default=5000, help="Number of MC paths (default: 5000)")
-    p.add_argument("--mc-years", type=int, default=20, help="MC simulation horizon in years (default: 20)")
+    p.add_argument("--mc-years", type=int, default=0, help="MC simulation horizon in years (0 = auto, uses max available years in data)")
     p.add_argument("--mc-block-size", type=int, default=3, help="MC block size in months (default: 3)")
 
     # Sensitivity
@@ -209,8 +209,15 @@ def run_monte_carlo(returns_dict: Dict[str, pd.Series], args, output_dir: Path):
     name = "Four Umbrellas" if "Four Umbrellas" in returns_dict else "Four Umbrellas (no options)"
     returns = returns_dict[name]
 
-    print(f"\nRunning Monte Carlo: {args.mc_paths:,} paths × {args.mc_years} years, block size {args.mc_block_size}")
-    n_months = args.mc_years * 12
+    # Auto-detect horizon if --mc-years=0: use the full available monthly
+    # history from the returns series (no integer truncation, no floor at 1Y).
+    if args.mc_years <= 0:
+        n_months = int(returns.dropna().shape[0])
+        n_years = n_months / 12.0
+    else:
+        n_years = args.mc_years
+        n_months = n_years * 12
+    print(f"\nRunning Monte Carlo: {args.mc_paths:,} paths × {n_years:.2f} years ({n_months} months), block size {args.mc_block_size}")
     simulated = block_bootstrap(
         returns, n_paths=args.mc_paths, n_periods=n_months,
         block_size=args.mc_block_size,
@@ -236,8 +243,9 @@ def run_monte_carlo(returns_dict: Dict[str, pd.Series], args, output_dir: Path):
     print(f"Median max drawdown:           {stats.median_max_drawdown:.2%}")
     print(f"Worst-5% max drawdown:         {stats.pct5_max_drawdown:.2%}")
 
-    # Save stats CSV
-    pd.DataFrame([stats.__dict__]).to_csv(output_dir / "monte_carlo_stats.csv", index=False)
+    # Save stats CSV — uses .to_dict() to flatten nested scenarios into
+    # scalar columns (avoids opaque object serialization)
+    pd.DataFrame([stats.to_dict()]).to_csv(output_dir / "monte_carlo_stats.csv", index=False)
 
     # Charts
     dates = pd.date_range(returns.index[-1], periods=n_months + 1, freq="ME")
@@ -245,6 +253,9 @@ def run_monte_carlo(returns_dict: Dict[str, pd.Series], args, output_dir: Path):
     plot_monte_carlo_fan(wealth_paths, dates, output_dir / "monte_carlo_fan.png", start_nav=args.nav)
     print("  - monte_carlo_distribution.png")
     plot_mc_distribution(wealth_paths[:, -1], output_dir / "monte_carlo_distribution.png", start_nav=args.nav)
+    if stats.scenarios is not None:
+        print("  - monte_carlo_scenarios.png")
+        plot_mc_scenarios(stats.scenarios, output_dir / "monte_carlo_scenarios.png", start_nav=args.nav)
 
     return stats
 

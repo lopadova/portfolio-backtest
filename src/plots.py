@@ -509,6 +509,51 @@ def plot_monte_carlo_fan(mc_paths: np.ndarray, dates: pd.DatetimeIndex, path: Pa
 # Chart: Monte Carlo terminal wealth distribution
 # ============================================================================
 
+def plot_mc_scenarios(scenarios, path: Path, start_nav: float = 100_000.0):
+    """
+    3-bar chart for the user-facing Monte Carlo scenarios:
+    Prudente (10°) / Mediana (50°) / Ottimista (90°).
+
+    Each bar shows both the terminal portfolio value in € and the implied
+    annualized CAGR as an annotation above.
+    """
+    _apply_style()
+    fig, ax = plt.subplots(figsize=(11, 6.5))
+    labels = ["Prudente\n(10° percentile)", "Mediana\n(50° percentile)", "Ottimista\n(90° percentile)"]
+    wealth_multipliers = [scenarios.prudente_wealth, scenarios.mediana_wealth, scenarios.ottimista_wealth]
+    cagr_values = [scenarios.prudente_cagr, scenarios.mediana_cagr, scenarios.ottimista_cagr]
+    terminal_euros = [w * start_nav for w in wealth_multipliers]
+    colors = ["#d62728", "#1f77b4", "#2ca02c"]  # red, blue, green
+
+    bars = ax.bar(labels, terminal_euros, color=colors, alpha=0.8, edgecolor="black", linewidth=0.8)
+
+    # Reference line at starting NAV
+    ax.axhline(start_nav, color="black", linewidth=1.0, linestyle="--", alpha=0.6, label=f"Starting NAV €{start_nav:,.0f}")
+
+    # Annotate each bar with CAGR and terminal value
+    y_max = max(terminal_euros) * 1.15
+    ax.set_ylim(0, y_max)
+    for bar, terminal, cagr_v in zip(bars, terminal_euros, cagr_values):
+        height = bar.get_height()
+        cagr_pct = cagr_v * 100
+        ax.annotate(
+            f"€{terminal:,.0f}\n({cagr_pct:+.1f}% CAGR)",
+            xy=(bar.get_x() + bar.get_width() / 2, height),
+            xytext=(0, 5), textcoords="offset points",
+            ha="center", va="bottom", fontsize=10, fontweight="bold",
+        )
+
+    ax.yaxis.set_major_formatter(mtick.FuncFormatter(lambda x, _: f"€{x:,.0f}"))
+    _setup_ax(
+        ax,
+        f"Monte Carlo scenarios over {scenarios.n_years:.0f} years",
+        "",
+        "Terminal portfolio value",
+    )
+    ax.legend(loc="upper left")
+    _save(fig, path)
+
+
 def plot_mc_distribution(terminal_wealth: np.ndarray, path: Path, start_nav: float = 100_000.0):
     _apply_style()
     fig, ax = plt.subplots(figsize=(13, 6.5))
