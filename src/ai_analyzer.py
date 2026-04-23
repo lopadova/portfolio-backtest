@@ -27,12 +27,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-try:
-    # urllib in stdlib — no external requests dependency required
-    from urllib.request import Request, urlopen
-    from urllib.error import HTTPError, URLError
-except ImportError:
-    Request = None  # type: ignore
+# urllib is in the Python stdlib — no external `requests` dependency needed.
+# (No try/except ImportError: stdlib imports never fail; the previous fallback
+# left `urlopen` undefined and would have produced a misleading NameError
+# at runtime. Keeping the imports unconditional makes failures obvious.)
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError  # noqa: F401 (surface for callers)
 
 
 DEFAULT_MODELS = {
@@ -42,12 +42,39 @@ DEFAULT_MODELS = {
     "local":      "kimi-k2-0.6b",
 }
 
-DEFAULT_ENDPOINTS = {
+
+def _resolve_local_endpoint() -> str:
+    """
+    Resolve the Local (Ollama / vLLM / LM Studio) endpoint **at call time**
+    so `LOCAL_API_BASE_URL` set or changed after module import is honored
+    (important for long-lived processes and tests using `monkeypatch.setenv`).
+    """
+    base_url = os.environ.get("LOCAL_API_BASE_URL", "http://localhost:11434/v1").rstrip("/")
+    return base_url + "/chat/completions"
+
+
+class _DefaultEndpointsDict(dict):
+    """
+    Dict subclass where "local" resolves lazily from the environment each
+    time it is read. Other keys behave as normal dict lookups.
+    """
+    def __getitem__(self, key):
+        if key == "local":
+            return _resolve_local_endpoint()
+        return super().__getitem__(key)
+
+    def get(self, key, default=None):
+        if key == "local":
+            return _resolve_local_endpoint()
+        return super().get(key, default)
+
+
+DEFAULT_ENDPOINTS = _DefaultEndpointsDict({
     "openrouter": "https://openrouter.ai/api/v1/chat/completions",
     "openai":     "https://api.openai.com/v1/chat/completions",
     "anthropic":  "https://api.anthropic.com/v1/messages",
-    "local":      os.environ.get("LOCAL_API_BASE_URL", "http://localhost:11434/v1") + "/chat/completions",
-}
+    # "local" is NOT cached here; _resolve_local_endpoint() is called on demand.
+})
 
 DEFAULT_ENV_VARS = {
     "openrouter": "OPENROUTER_API_KEY",
@@ -71,7 +98,7 @@ Fornisci in italiano, in formato Markdown, una risposta strutturata così:
 ## 2. Diagnosi punti di debolezza
 3-5 bullet points sui punti deboli o caveat emersi.
 
-## 3. Raccomandazioni parametrice
+## 3. Raccomandazioni parametriche
 3-5 suggerimenti concreti con numeri specifici (es: "considerare di aumentare DBi
 dal 5% al 7% NAV" o "il budget opzioni di 0.30% potrebbe essere aumentato a 0.50%
 data la robustezza emersa"). Ciascuna raccomandazione deve citare il dato del
@@ -223,8 +250,10 @@ class LocalAnalyzer(AiAnalyzer):
     def analyze(self, prompt: str, system_prompt: str = SYSTEM_PROMPT) -> AiResponse:
         model = self.model or DEFAULT_MODELS["local"]
         endpoint = DEFAULT_ENDPOINTS["local"]
-        # Most local endpoints accept any token or no token
-        api_key = self.api_key or "ollama"
+        # Most local endpoints (Ollama/vLLM/LM Studio) run without auth and can
+        # reject unexpected Authorization headers. Only send a Bearer token if
+        # the user explicitly provided one via `api_key=...`.
+        api_key = self.api_key if self.api_key else None
         data = _openai_compatible_call(endpoint, model, api_key, prompt, system_prompt)
         content = data["choices"][0]["message"]["content"]
         usage = data.get("usage", {})
@@ -291,9 +320,12 @@ def save_analysis(response: AiResponse, output_path: Path) -> None:
         f"- **Provider**: {response.provider}",
         f"- **Model**: {response.model}",
     ]
-    if response.prompt_tokens:
+    # Use `is not None` rather than truthy: 0 tokens is a legitimate value
+    # that should still be recorded in the header (prevents misleading
+    # silent omission when a provider returns zero-token usage).
+    if response.prompt_tokens is not None:
         header.append(f"- **Prompt tokens**: {response.prompt_tokens}")
-    if response.completion_tokens:
+    if response.completion_tokens is not None:
         header.append(f"- **Completion tokens**: {response.completion_tokens}")
     header.extend([
         "",

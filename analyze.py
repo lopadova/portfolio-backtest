@@ -79,9 +79,11 @@ def main():
     print(f"{'=' * 60}")
     print(f"Provider:      {response.provider}")
     print(f"Model:         {response.model}")
-    if response.prompt_tokens:
+    # Use `is not None` rather than truthy: 0 tokens is a legitimate value
+    # worth surfacing (e.g. some providers report 0 for streamed responses).
+    if response.prompt_tokens is not None:
         print(f"Tokens in:     {response.prompt_tokens:,}")
-    if response.completion_tokens:
+    if response.completion_tokens is not None:
         print(f"Tokens out:    {response.completion_tokens:,}")
     print(f"\nAnalysis saved: {output_path.resolve()}")
 

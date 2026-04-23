@@ -26,8 +26,11 @@ from src.ai_analyzer import (
 
 class TestFactory:
     def test_default_is_openrouter(self):
-        # Pass explicit model to avoid env var lookup failure
-        analyzer = get_analyzer("openrouter")
+        """Calling get_analyzer() with no args must return OpenRouter
+        (the documented default). Avoids the prior misleading call
+        `get_analyzer('openrouter')` that tested the explicit string
+        rather than the default."""
+        analyzer = get_analyzer()
         assert isinstance(analyzer, OpenRouterAnalyzer)
 
     def test_openai_factory(self):
@@ -112,6 +115,81 @@ class TestSaveAnalysis:
         save_analysis(response, out)
         content = out.read_text(encoding="utf-8")
         assert "local" in content
+
+    def test_save_records_zero_tokens(self, tmp_path):
+        """Regression (Copilot PR #10): prompt_tokens=0 must appear in the
+        header. Previously a truthy-check silently omitted it."""
+        response = AiResponse(
+            content="analysis", provider="local", model="kimi-k2",
+            prompt_tokens=0, completion_tokens=0,
+        )
+        out = tmp_path / "AI.md"
+        save_analysis(response, out)
+        content = out.read_text(encoding="utf-8")
+        assert "Prompt tokens" in content
+        assert "Completion tokens" in content
+
+
+class TestLocalEndpointResolution:
+    """Regression (Copilot PR #10): LOCAL_API_BASE_URL must be resolved
+    lazily on each lookup, not frozen at module-import time."""
+
+    def test_local_endpoint_follows_env_changes(self, monkeypatch):
+        from src.ai_analyzer import DEFAULT_ENDPOINTS
+        monkeypatch.setenv("LOCAL_API_BASE_URL", "http://example.com:9999/v1")
+        endpoint = DEFAULT_ENDPOINTS["local"]
+        assert endpoint == "http://example.com:9999/v1/chat/completions"
+        # Change env var — next lookup must reflect the new value
+        monkeypatch.setenv("LOCAL_API_BASE_URL", "http://other.local:8080/v1")
+        endpoint2 = DEFAULT_ENDPOINTS["local"]
+        assert endpoint2 == "http://other.local:8080/v1/chat/completions"
+
+    def test_local_endpoint_default_when_unset(self, monkeypatch):
+        from src.ai_analyzer import DEFAULT_ENDPOINTS
+        monkeypatch.delenv("LOCAL_API_BASE_URL", raising=False)
+        endpoint = DEFAULT_ENDPOINTS["local"]
+        assert endpoint == "http://localhost:11434/v1/chat/completions"
+
+    def test_local_endpoint_trims_trailing_slash(self, monkeypatch):
+        from src.ai_analyzer import DEFAULT_ENDPOINTS
+        monkeypatch.setenv("LOCAL_API_BASE_URL", "http://example.com:9999/v1/")
+        assert DEFAULT_ENDPOINTS["local"] == "http://example.com:9999/v1/chat/completions"
+
+
+class TestLocalAnalyzerNoAuth:
+    """Regression (Copilot PR #10): LocalAnalyzer must not force a bogus
+    'ollama' Bearer token, because many local servers reject unexpected
+    Authorization headers."""
+
+    @patch("src.ai_analyzer.urlopen")
+    def test_no_bearer_header_when_api_key_is_none(self, mock_urlopen, monkeypatch):
+        from src.ai_analyzer import LocalAnalyzer
+        monkeypatch.setenv("LOCAL_API_BASE_URL", "http://localhost:11434/v1")
+        mock_response = MagicMock()
+        mock_response.read.return_value = b'{"choices":[{"message":{"content":"ok"}}],"usage":{}}'
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        analyzer = LocalAnalyzer()  # api_key=None by default
+        analyzer.analyze("test")
+
+        # Inspect the Request object passed to urlopen
+        call_args = mock_urlopen.call_args
+        req = call_args[0][0]  # first positional arg
+        # Authorization header must NOT be present when api_key is None
+        assert not req.has_header("Authorization"), \
+            "LocalAnalyzer should not send Authorization header by default"
+
+    @patch("src.ai_analyzer.urlopen")
+    def test_bearer_header_when_user_provides_key(self, mock_urlopen):
+        from src.ai_analyzer import LocalAnalyzer
+        mock_response = MagicMock()
+        mock_response.read.return_value = b'{"choices":[{"message":{"content":"ok"}}],"usage":{}}'
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        analyzer = LocalAnalyzer(api_key="my-token")
+        analyzer.analyze("test")
+        req = mock_urlopen.call_args[0][0]
+        assert req.has_header("Authorization")
 
 
 class TestMockedCalls:
