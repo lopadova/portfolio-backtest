@@ -2,6 +2,8 @@
 Unit tests for src/rolling_window.py — rolling-window backtest engine.
 """
 
+import matplotlib
+matplotlib.use("Agg")  # non-interactive backend for headless/CI runs
 import pandas as pd
 import pytest
 
@@ -41,6 +43,36 @@ class TestRollingBacktest:
         with pytest.raises(ValueError):
             # 100-year window on 20-year data must error
             run_rolling_backtest(bundle, window_years=100, step_months=1)
+
+    def test_raises_on_invalid_window_years(self):
+        """window_years must be a positive integer."""
+        bundle = _generate_synthetic_bundle()
+        with pytest.raises(ValueError, match="window_years must be a positive integer"):
+            run_rolling_backtest(bundle, window_years=0, step_months=1)
+        with pytest.raises(ValueError, match="window_years must be a positive integer"):
+            run_rolling_backtest(bundle, window_years=-5, step_months=1)
+        with pytest.raises(ValueError, match="window_years must be a positive integer"):
+            run_rolling_backtest(bundle, window_years=5.5, step_months=1)  # non-int
+
+    def test_raises_on_invalid_step_months(self):
+        """step_months must be a positive integer (prevents infinite loop)."""
+        bundle = _generate_synthetic_bundle()
+        with pytest.raises(ValueError, match="step_months must be a positive integer"):
+            run_rolling_backtest(bundle, window_years=5, step_months=0)
+        with pytest.raises(ValueError, match="step_months must be a positive integer"):
+            run_rolling_backtest(bundle, window_years=5, step_months=-1)
+
+    def test_allows_data_length_equal_to_window(self):
+        """
+        Regression: total_months == window_months is a valid case that should
+        produce exactly one window (not raise ValueError). Previously the
+        guard was `<=` which wrongly rejected the equality case.
+        """
+        bundle = _generate_synthetic_bundle()
+        total_years = len(bundle.monthly_returns_eur) // 12
+        # Use a window exactly matching the data length
+        df = run_rolling_backtest(bundle, window_years=total_years, step_months=1)
+        assert len(df) == 1  # exactly one window fits
 
     def test_chart_created(self, tmp_path):
         bundle = _generate_synthetic_bundle()

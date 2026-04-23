@@ -18,7 +18,6 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import List
 
-import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -52,13 +51,30 @@ def run_rolling_backtest(
     Run the core portfolio simulation on every rolling window of `window_years`
     years, stepping by `step_months` months. Returns a DataFrame indexed by
     window start date with summary statistics.
+
+    Raises ValueError if:
+      - window_years is not a positive integer
+      - step_months is not a positive integer (would cause infinite loop)
+      - data range is strictly shorter than the window
     """
+    if not isinstance(window_years, int) or window_years <= 0:
+        raise ValueError(
+            f"window_years must be a positive integer, got {window_years!r}"
+        )
+    if not isinstance(step_months, int) or step_months <= 0:
+        raise ValueError(
+            f"step_months must be a positive integer, got {step_months!r} "
+            f"(non-positive would produce an infinite loop)"
+        )
+
     monthly_returns = bundle.monthly_returns_eur
     btc_activation = bundle.btc_activation_date
 
     window_months = window_years * 12
     total_months = len(monthly_returns)
-    if total_months <= window_months:
+    # Reject only if data is STRICTLY shorter than the window —
+    # total_months == window_months is valid and yields exactly 1 window.
+    if total_months < window_months:
         raise ValueError(
             f"Data range ({total_months} months) is shorter than the window "
             f"({window_months} months). Use a shorter window."
@@ -89,15 +105,31 @@ def run_rolling_backtest(
     return df
 
 
-def plot_rolling_window_results(df: pd.DataFrame, window_years: int, path: Path):
+def _describe_step(step_months: int) -> str:
+    """Produce a human-readable label for the step cadence (monthly / quarterly / annual / etc)."""
+    if step_months == 1:
+        return "monthly"
+    if step_months == 3:
+        return "quarterly"
+    if step_months == 6:
+        return "semi-annually"
+    if step_months == 12:
+        return "annually"
+    return f"every {step_months} months"
+
+
+def plot_rolling_window_results(df: pd.DataFrame, window_years: int, path: Path, step_months: int = 1):
     """
     Three-panel chart showing the distribution of CAGR / Max DD / Sharpe
     across all rolling windows.
+
+    step_months: passed through from the caller; used to make the chart title
+    honest (e.g., "stepped annually" instead of hardcoded "stepped monthly").
     """
     fig, axes = plt.subplots(3, 1, figsize=(13, 11), sharex=True)
     fig.suptitle(
         f"Rolling {window_years}-year window backtest — "
-        f"{len(df)} windows, stepped monthly",
+        f"{len(df)} windows, stepped {_describe_step(step_months)}",
         fontsize=13, fontweight="bold", y=0.995,
     )
 
