@@ -76,6 +76,10 @@ def parse_args():
     p.add_argument("--window-years", type=int, default=10, help="Rolling window size in years (default: 10)")
     p.add_argument("--step-months", type=int, default=1, help="Step between windows in months (default: 1 = monthly)")
 
+    # Efficient frontier (Phase 6)
+    p.add_argument("--efficient-frontier", action="store_true", help="Compute and plot the efficient frontier")
+    p.add_argument("--n-random", type=int, default=50_000, help="Random portfolios for frontier cloud (default: 50k)")
+
     return p.parse_args()
 
 
@@ -320,6 +324,39 @@ def main():
 
     if args.sensitivity:
         run_sensitivity(args, bundle=bundle)
+        return
+
+    if args.efficient_frontier:
+        from src.efficient_frontier import run_efficient_frontier, plot_efficient_frontier
+        print(f"\nRunning efficient frontier analysis ({args.n_random:,} random portfolios + Markowitz)...")
+        # First run the core portfolio once to have the Four Umbrellas reference
+        from src.rebalance import simulate_portfolio
+        fu_returns = simulate_portfolio(
+            bundle.monthly_returns_eur, bundle.btc_activation_date, apply_ter=True,
+        )
+        random_eval_df, key_portfolios, frontier_df, fu_point = run_efficient_frontier(
+            bundle, four_umbrellas_returns=fu_returns, n_random=args.n_random,
+        )
+        output_dir = Path(args.output_dir) / "efficient_frontier"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        random_eval_df.to_csv(output_dir / "random_portfolios.csv", index=False)
+        frontier_df.to_csv(output_dir / "frontier_line.csv", index=False)
+        plot_efficient_frontier(
+            random_eval_df, key_portfolios, frontier_df, fu_point,
+            output_dir / "efficient_frontier.png",
+        )
+        print("\nKey portfolios found:")
+        for key, point in key_portfolios.items():
+            print(f"  {point.label:15s}: "
+                  f"return {point.expected_return*100:6.2f}%, "
+                  f"vol {point.volatility*100:5.2f}%, "
+                  f"Sharpe {point.sharpe:.3f}")
+        if fu_point is not None:
+            print(f"  {'Four Umbrellas':15s}: "
+                  f"return {fu_point.expected_return*100:6.2f}%, "
+                  f"vol {fu_point.volatility*100:5.2f}%, "
+                  f"Sharpe {fu_point.sharpe:.3f}")
+        print(f"\nOutputs in {output_dir.resolve()}")
         return
 
     if args.rolling_window:
