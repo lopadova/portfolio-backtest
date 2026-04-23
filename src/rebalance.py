@@ -161,7 +161,18 @@ def simulate_benchmark(
     benchmark is skipped (returns empty Series). Default 80% — means we allow
     up to 20% of the portfolio weight to be on missing data and normalize
     the rest. This prevents artificially scaling up a tiny remainder.
+    Must be a finite number in [0.0, 1.0]; ValueError is raised otherwise.
     """
+    # Validate min_coverage is a finite number in [0, 1]
+    if not isinstance(min_coverage, (int, float)) or not np.isfinite(min_coverage):
+        raise ValueError(
+            f"min_coverage must be a finite number in [0, 1], got {min_coverage!r}"
+        )
+    if not (0.0 <= min_coverage <= 1.0):
+        raise ValueError(
+            f"min_coverage must be in [0.0, 1.0], got {min_coverage}"
+        )
+
     available = [k for k in weights if k in monthly_returns.columns]
     if len(available) == 0:
         return pd.Series(dtype=float)

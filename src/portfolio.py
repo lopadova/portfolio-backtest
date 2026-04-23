@@ -264,8 +264,11 @@ BENCHMARKS: Dict[str, Dict[str, float]] = {
         "sg_cta_index_monthly":        0.075,  # commodity-trend proxy
     },
     # Phase 3: classical allocator portfolios.
-    # If the underlying data series is not available in the data/raw/ folder,
-    # the benchmark is skipped with a warning (not a crash).
+    # Missing-data policy (see simulate_benchmark `min_coverage`, default 0.80):
+    #   - if ≥ 80% of the portfolio's weight has data available, the benchmark
+    #     runs with renormalized weights (remaining sleeves scaled to sum=1.0)
+    #   - if coverage falls below 80%, the benchmark is skipped entirely with
+    #     a log message (no crash, no silently distorted weights)
     "Golden Butterfly (Tyler)": {
         # 20/20/20/20/20: US large + US SCV + LT Treas + ST Treas + Gold
         "sp500_tr_monthly":           0.20,

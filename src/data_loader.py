@@ -170,7 +170,12 @@ def load_data(synthetic: bool = False) -> DataBundle:
         "iboxx_eurgov_1_3y_monthly":  ("eur",      "iboxx_eurgov_1_3y_monthly"),
         "gold_lbma_monthly":          ("unhedged", "gold_lbma_monthly"),
         "sg_cta_index_monthly":       ("unhedged", "sg_cta_index_monthly"),
-        # Phase 3: classical allocator benchmarks (loaded if present, skipped otherwise)
+        # Phase 3: additional series used by the classical allocator benchmarks.
+        # Each is loaded individually if its CSV is present in data/raw/, and
+        # silently omitted from benchmark_monthly_eur otherwise. Whether a given
+        # benchmark portfolio runs or is skipped depends on simulate_benchmark()'s
+        # coverage threshold (default 0.80) applied to its weighted composition,
+        # not on which individual series are missing here.
         "msci_world_ex_usa_monthly":  ("unhedged", "msci_world_ex_usa_monthly"),
         "msci_emerging_tr_monthly":   ("unhedged", "msci_emerging_tr_monthly"),
         "sp600_scv_tr_monthly":       ("unhedged", "sp600_scv_tr_monthly"),

@@ -110,3 +110,29 @@ class TestSimulateBenchmark:
         # Explicit loose coverage → runs with the available 50% re-normalized to 100%
         out_loose = simulate_benchmark(synthetic_bench_data, weights, min_coverage=0.0)
         assert len(out_loose) > 0
+
+    def test_min_coverage_validates_type(self, synthetic_bench_data):
+        """min_coverage must be a finite number."""
+        weights = {"msci_world_tr_monthly": 0.6, "bloomberg_euro_agg_monthly": 0.4}
+        with pytest.raises(ValueError, match="min_coverage must be a finite number"):
+            simulate_benchmark(synthetic_bench_data, weights, min_coverage="0.8")
+        with pytest.raises(ValueError, match="min_coverage must be a finite number"):
+            simulate_benchmark(synthetic_bench_data, weights, min_coverage=float("nan"))
+        with pytest.raises(ValueError, match="min_coverage must be a finite number"):
+            simulate_benchmark(synthetic_bench_data, weights, min_coverage=float("inf"))
+
+    def test_min_coverage_validates_range(self, synthetic_bench_data):
+        """min_coverage must be in [0.0, 1.0]."""
+        weights = {"msci_world_tr_monthly": 0.6, "bloomberg_euro_agg_monthly": 0.4}
+        with pytest.raises(ValueError, match="must be in"):
+            simulate_benchmark(synthetic_bench_data, weights, min_coverage=-0.1)
+        with pytest.raises(ValueError, match="must be in"):
+            simulate_benchmark(synthetic_bench_data, weights, min_coverage=1.5)
+
+    def test_min_coverage_boundary_values_accepted(self, synthetic_bench_data):
+        """min_coverage=0.0 and 1.0 are both valid boundary values."""
+        weights = {"msci_world_tr_monthly": 0.6, "bloomberg_euro_agg_monthly": 0.4}
+        out_low = simulate_benchmark(synthetic_bench_data, weights, min_coverage=0.0)
+        out_high = simulate_benchmark(synthetic_bench_data, weights, min_coverage=1.0)
+        assert len(out_low) == 36
+        assert len(out_high) == 36  # full coverage available
