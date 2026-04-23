@@ -305,6 +305,31 @@ BENCHMARKS: Dict[str, Dict[str, float]] = {
 
 
 # ============================================================================
+# Italian tax modeling (Phase 7) — simplified model for backtest CGT drag
+# ============================================================================
+
+@dataclass
+class TaxConfig:
+    """
+    Italian capital-gains tax configuration.
+
+    See src/tax.py for implementation details and caveats. This is a
+    simplified model and does NOT replace professional tax advice.
+
+    Instantiate explicitly at the caller (e.g. the future rebalance-engine
+    integration or the Streamlit dashboard will construct its own
+    `TaxConfig(...)` rather than sharing a global instance, so each run
+    has deterministic, independent tax settings).
+    """
+    enabled: bool = False                 # default OFF (preserves backward compat)
+    capital_gains_rate: float = 0.26      # 26% on most financial instruments
+    gov_bond_rate: float = 0.125          # 12.5% on whitelist gov bonds
+    loss_carryforward_years: int = 4      # "zainetto fiscale" — 4 anni di carry-forward
+    pension_exempt: bool = True           # pensione non tassata durante accumulo
+    apply_to_rebalance_sales: bool = True # apply CGT to rebalance-triggered sales
+
+
+# ============================================================================
 # Reference NAV (pure cosmetic — the backtest is scale-invariant)
 # ============================================================================
 
