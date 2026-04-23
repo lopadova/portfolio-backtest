@@ -13,11 +13,8 @@ Deploy to HuggingFace Spaces: add a Dockerfile (see README) and push.
 
 from __future__ import annotations
 
-import copy
-import io
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -51,24 +48,12 @@ st.set_page_config(
 
 
 # ===========================================================================
-# Helpers
+# Helpers — imported from dashboard_helpers so tests exercise the REAL code.
+# (Previously duplicated inside this file; Copilot review pointed out the
+# risk of silent drift between prod and test. The shared module is
+# Streamlit-free so importing it in pytest doesn't require Streamlit.)
 # ===========================================================================
-def _snapshot_config():
-    return {
-        "WEIGHTS": copy.deepcopy(portfolio_cfg.WEIGHTS),
-        "EQUITY": copy.deepcopy(portfolio_cfg.EQUITY),
-        "OPTIONS": copy.deepcopy(portfolio_cfg.OPTIONS),
-        "REBALANCE": copy.deepcopy(portfolio_cfg.REBALANCE),
-    }
-
-
-def _restore_config(snap):
-    portfolio_cfg.WEIGHTS.clear()
-    portfolio_cfg.WEIGHTS.update(snap["WEIGHTS"])
-    portfolio_cfg.EQUITY.clear()
-    portfolio_cfg.EQUITY.update(snap["EQUITY"])
-    portfolio_cfg.OPTIONS.__dict__.update(snap["OPTIONS"].__dict__)
-    portfolio_cfg.REBALANCE.__dict__.update(snap["REBALANCE"].__dict__)
+from src.dashboard_helpers import snapshot_config, restore_config, apply_macro_weights
 
 
 @st.cache_data(show_spinner=False)
@@ -163,14 +148,15 @@ st.markdown(
 )
 
 if run_btn:
-    # Apply config overrides
-    snapshot = _snapshot_config()
+    # Apply config overrides. Use the shared helper `apply_macro_weights`
+    # which atomically updates gold + dbi and derives cash = 1 - Σ(non-cash)
+    # so the WEIGHTS sum stays exactly 1.0 (otherwise the rebalance engine's
+    # build_target_weights() assertion fires). Previous code had a double bug:
+    # (a) cash computed BEFORE dbi was set, (b) hardcoded 0.1825 gold offset
+    # that was wrong after changing the slider.
+    snapshot = snapshot_config()
     try:
-        portfolio_cfg.WEIGHTS["gold"] = gold_weight / 100
-        portfolio_cfg.WEIGHTS["cash"] = 1.0 - sum(
-            v for k, v in portfolio_cfg.WEIGHTS.items() if k not in ("cash",)
-        ) + (gold_weight / 100 - 0.1825)  # rebalance cash
-        portfolio_cfg.WEIGHTS["dbi"] = dbi_weight / 100
+        apply_macro_weights(gold_pct=gold_weight / 100, dbi_pct=dbi_weight / 100)
         portfolio_cfg.OPTIONS.enabled = options_enabled
         portfolio_cfg.OPTIONS.budget_nav_per_year = options_budget
 
@@ -218,11 +204,34 @@ if run_btn:
                 wealth_paths = simulate_wealth_paths(sim_returns)
                 mc_stats = compute_mc_stats(wealth_paths, n_months=mc_years * 12)
 
-        # Output directory (if saving)
+        # Output directory.
+        # When save_results=True: persist to output/dashboard_run/ on disk.
+        # When save_results=False: use a TemporaryDirectory stored in
+        # st.session_state that is cleaned up on the NEXT run (ensuring
+        # only one ephemeral dir exists at a time — prevents disk bloat
+        # from tempfile.mkdtemp() accumulating across Streamlit reruns).
+        _tempdir_key = "_dashboard_tempdir"
+        existing_tempdir = st.session_state.get(_tempdir_key)
         if save_results:
+            # Clean up any leftover session-only tempdir (we won't need it now)
+            if existing_tempdir is not None:
+                try:
+                    existing_tempdir.cleanup()
+                except Exception:
+                    pass  # best-effort; avoid blocking the run
+                del st.session_state[_tempdir_key]
             output_dir = Path("output/dashboard_run")
+            output_dir.mkdir(parents=True, exist_ok=True)
         else:
-            output_dir = Path(tempfile.mkdtemp())
+            # Clean up the previous session tempdir BEFORE creating a new one
+            if existing_tempdir is not None:
+                try:
+                    existing_tempdir.cleanup()
+                except Exception:
+                    pass
+            new_tempdir = tempfile.TemporaryDirectory(prefix="fourumbrellas_")
+            st.session_state[_tempdir_key] = new_tempdir
+            output_dir = Path(new_tempdir.name)
 
         # Tabs
         tab_summary, tab_charts, tab_mc, tab_ai = st.tabs(
@@ -343,7 +352,7 @@ Summary statistics:
             st.sidebar.success(f"💾 Saved to {output_dir}")
 
     finally:
-        _restore_config(snapshot)
+        restore_config(snapshot)
 
 else:
     st.info("👈 Configure parameters in the sidebar and click **▶ Run backtest**.")
