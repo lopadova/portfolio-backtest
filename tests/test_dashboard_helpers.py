@@ -13,10 +13,14 @@ import pytest
 
 from src.dashboard_helpers import (
     build_portfolio_from_ui_state,
+    common_history_years,
     compute_effective_start,
+    fire_config_from_ui_state,
     format_asset_start_date,
 )
 from src.data_catalog import AssetInfo
+from src.data_loader import _generate_synthetic_bundle
+from src.fire import FireConfig
 from src.portfolio_model import AssetAllocation, Portfolio
 
 
@@ -236,3 +240,156 @@ class TestFormatAssetStartDate:
                 start_date=pd.Timestamp(year=2020, month=month, day=1),
             )
             assert format_asset_start_date(info) == f"{abbr} 2020"
+
+
+# ---------------------- common_history_years (PR5) --------------------------
+
+
+class TestCommonHistoryYears:
+    def _bundle_ending_2024(self):
+        return _generate_synthetic_bundle()  # ends 2024-12-31
+
+    def test_all_assets_with_full_history(self):
+        """Portfolio where every asset has start_date ≤ bundle_start → the
+        function returns the full bundle length (~20y for synthetic)."""
+        bundle = self._bundle_ending_2024()
+        catalog = _toy_catalog()
+        # gold starts 2003, bundle starts 2005, bundle ends 2024
+        # common history = (2024-12 - 2003-01) ~ 22 years
+        p = Portfolio(
+            name="P", assets=[AssetAllocation("gold", 1.0)],
+        )
+        years = common_history_years(bundle, p, catalog)
+        assert years == pytest.approx(22.0, abs=0.5)
+
+    def test_btc_constrains_to_10_years(self):
+        """BTC starts 2014-09; bundle ends 2024-12 → ~10.3 years."""
+        bundle = self._bundle_ending_2024()
+        catalog = _toy_catalog()
+        p = Portfolio(
+            name="P",
+            assets=[AssetAllocation("gold", 0.5), AssetAllocation("btc", 0.5)],
+        )
+        years = common_history_years(bundle, p, catalog)
+        assert 9.5 <= years <= 10.5
+
+    def test_cash_does_not_constrain(self):
+        """Cash is always-available; it should NOT reduce the common history."""
+        bundle = self._bundle_ending_2024()
+        catalog = _toy_catalog()
+        p_with_cash = Portfolio(
+            name="With cash",
+            assets=[AssetAllocation("gold", 0.5), AssetAllocation("cash", 0.5)],
+        )
+        p_without_cash = Portfolio(
+            name="No cash",
+            assets=[AssetAllocation("gold", 1.0)],
+        )
+        assert common_history_years(bundle, p_with_cash, catalog) == pytest.approx(
+            common_history_years(bundle, p_without_cash, catalog),
+        )
+
+    def test_asset_without_catalog_entry_ignored(self):
+        """Unknown keys don't crash; they're skipped from the constraint."""
+        bundle = self._bundle_ending_2024()
+        catalog = _toy_catalog()
+        p = Portfolio(
+            name="P",
+            assets=[
+                AssetAllocation("gold", 0.5),
+                AssetAllocation("not_in_catalog", 0.5),
+            ],
+        )
+        # Should behave like portfolio with gold only
+        years = common_history_years(bundle, p, catalog)
+        assert years == pytest.approx(22.0, abs=0.5)
+
+    def test_returns_zero_when_no_catalog_entry(self):
+        """Pathological case: every asset is unknown. Return 0.0 so the UI
+        can gracefully show 'insufficient history'."""
+        bundle = self._bundle_ending_2024()
+        p = Portfolio(
+            name="P", assets=[AssetAllocation("mystery", 1.0)],
+        )
+        assert common_history_years(bundle, p, {}) == 0.0
+
+
+# ---------------------- fire_config_from_ui_state (PR5) ---------------------
+
+
+def _valid_fire_state() -> dict:
+    return {
+        "fire_current_age": 45,
+        "fire_sex": "M",
+        "fire_fixed_end_age": None,
+        "fire_initial_capital": 100_000.0,
+        "fire_contribution_amount": 1_000.0,
+        "fire_contribution_frequency": "month",
+        "fire_fire_age": 60,
+        "fire_monthly_spending": 2_500.0,
+        "fire_inflation_rate": 0.02,
+        "fire_pension_enabled": True,
+        "fire_pension_monthly_amount": 1_500.0,
+        "fire_pension_start_age": 67,
+        "fire_pension_revaluation": 0.75,
+        "fire_tax_on_withdrawals": True,
+        "fire_tax_rate": 0.26,
+        "fire_n_simulations": 1000,
+        "fire_block_size": 3,
+        "fire_seed": 42,
+    }
+
+
+class TestFireConfigFromUiState:
+    def test_builds_valid_config(self):
+        cfg = fire_config_from_ui_state(_valid_fire_state())
+        assert isinstance(cfg, FireConfig)
+        assert cfg.current_age == 45
+        assert cfg.fire_age == 60
+        assert cfg.pension_enabled is True
+        assert cfg.pension_monthly_amount == 1_500.0
+
+    def test_fire_age_must_exceed_current_age(self):
+        state = _valid_fire_state()
+        state["fire_fire_age"] = state["fire_current_age"]   # invalid: equal
+        with pytest.raises(ValueError, match="strictly greater than current age"):
+            fire_config_from_ui_state(state)
+
+    def test_negative_spending_rejected(self):
+        state = _valid_fire_state()
+        state["fire_monthly_spending"] = -100
+        with pytest.raises(ValueError, match="Monthly spending"):
+            fire_config_from_ui_state(state)
+
+    def test_inflation_out_of_range(self):
+        state = _valid_fire_state()
+        state["fire_inflation_rate"] = 0.5  # 50% — out of [0, 0.25]
+        with pytest.raises(ValueError, match="Inflation rate"):
+            fire_config_from_ui_state(state)
+
+    def test_fixed_end_age_none_treated_as_unset(self):
+        state = _valid_fire_state()
+        state["fire_fixed_end_age"] = None
+        cfg = fire_config_from_ui_state(state)
+        assert cfg.fixed_end_age is None
+
+    def test_fixed_end_age_zero_treated_as_unset(self):
+        """UI number_input often uses 0 as 'no value set'."""
+        state = _valid_fire_state()
+        state["fire_fixed_end_age"] = 0
+        cfg = fire_config_from_ui_state(state)
+        assert cfg.fixed_end_age is None
+
+    def test_pension_disabled_still_builds(self):
+        state = _valid_fire_state()
+        state["fire_pension_enabled"] = False
+        cfg = fire_config_from_ui_state(state)
+        assert cfg.pension_enabled is False
+        # Pension amount still in the dataclass (the simulator ignores it
+        # when pension_enabled=False), just preserves what the UI had.
+
+    def test_tax_rate_bounds(self):
+        state = _valid_fire_state()
+        state["fire_tax_rate"] = 1.5
+        with pytest.raises(ValueError, match="Tax rate"):
+            fire_config_from_ui_state(state)

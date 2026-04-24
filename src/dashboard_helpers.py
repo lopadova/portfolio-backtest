@@ -25,6 +25,8 @@ import pandas as pd
 
 from . import portfolio as portfolio_cfg
 from .data_catalog import AssetInfo
+from .data_loader import DataBundle
+from .fire import FireConfig
 from .portfolio_model import AssetAllocation, Portfolio
 
 _ITALIAN_MONTH_ABBR = (
@@ -190,3 +192,111 @@ def format_asset_start_date(info: Optional[AssetInfo]) -> str:
         return "—"
     d = info.start_date
     return f"{_ITALIAN_MONTH_ABBR[d.month - 1]} {d.year}"
+
+
+# ============================================================================
+# PR5 — walk-forward gating + FIRE config builder
+# ============================================================================
+
+def common_history_years(
+    bundle: DataBundle,
+    portfolio: Portfolio,
+    catalog: Dict[str, AssetInfo],
+) -> float:
+    """Years of history common to every portfolio asset (cash and
+    catalog-less keys excluded).
+
+    Walk-forward simulations require at least ``window_years`` of history
+    shared by all assets; the Simulazione storica tab uses this helper to
+    gate runs against a 20-year minimum.
+
+    ``cash`` is treated as always-available: it's the zero-yield residual
+    and doesn't constrain the window. Keys missing from the catalog are
+    skipped (same conservative policy as :func:`compute_effective_start`).
+    If no asset in the portfolio has a ``start_date`` that we can see,
+    returns 0.0 (the UI will render this as "insufficient history").
+    """
+    bundle_end = bundle.monthly_returns_eur.index[-1]
+    latest_start: Optional[pd.Timestamp] = None
+    for alloc in portfolio.assets:
+        if alloc.key == "cash":
+            continue
+        info = catalog.get(alloc.key)
+        if info is None or info.start_date is None:
+            continue
+        if latest_start is None or info.start_date > latest_start:
+            latest_start = info.start_date
+
+    if latest_start is None or latest_start >= bundle_end:
+        return 0.0
+    delta_days = (bundle_end - latest_start).days
+    return delta_days / 365.25
+
+
+def fire_config_from_ui_state(state: Dict[str, Any]) -> FireConfig:
+    """Construct a :class:`FireConfig` from the Streamlit session-state
+    shape emitted by the FIRE form in the Impostazioni tab.
+
+    Expected keys (all present because the form supplies defaults):
+      ``fire_current_age``, ``fire_sex``, ``fire_fixed_end_age``
+      (Optional[int], may be ``None`` or ``0`` = unset),
+      ``fire_initial_capital``, ``fire_contribution_amount``,
+      ``fire_contribution_frequency`` ("month" / "year"),
+      ``fire_fire_age``, ``fire_monthly_spending``, ``fire_inflation_rate``,
+      ``fire_pension_enabled``, ``fire_pension_monthly_amount``,
+      ``fire_pension_start_age``, ``fire_pension_revaluation``,
+      ``fire_tax_on_withdrawals``, ``fire_tax_rate``,
+      ``fire_n_simulations``, ``fire_block_size``, ``fire_seed``.
+
+    Raises ``ValueError`` with actionable messages when combinations are
+    infeasible (e.g. ``fire_age <= current_age``, negative spending).
+    """
+    current_age = int(state["fire_current_age"])
+    fire_age = int(state["fire_fire_age"])
+    if fire_age <= current_age:
+        raise ValueError(
+            f"FIRE age ({fire_age}) must be strictly greater than current age "
+            f"({current_age}); otherwise there's no accumulation phase."
+        )
+    if state["fire_monthly_spending"] < 0:
+        raise ValueError(
+            f"Monthly spending must be >= 0, got {state['fire_monthly_spending']}"
+        )
+    if state["fire_initial_capital"] < 0:
+        raise ValueError(
+            f"Initial capital must be >= 0, got {state['fire_initial_capital']}"
+        )
+    if not (0.0 <= state["fire_inflation_rate"] <= 0.25):
+        raise ValueError(
+            f"Inflation rate must be in [0, 0.25] as a decimal, got "
+            f"{state['fire_inflation_rate']}"
+        )
+    if not (0.0 <= state["fire_tax_rate"] <= 1.0):
+        raise ValueError(
+            f"Tax rate must be in [0, 1] as a decimal, got {state['fire_tax_rate']}"
+        )
+
+    # fixed_end_age: UI sends None for "unset"; treat 0 as "unset" too.
+    fixed_end_age_raw = state.get("fire_fixed_end_age")
+    fixed_end_age = int(fixed_end_age_raw) if fixed_end_age_raw else None
+
+    return FireConfig(
+        current_age=current_age,
+        sex=state["fire_sex"],
+        fixed_end_age=fixed_end_age,
+        initial_capital=float(state["fire_initial_capital"]),
+        contribution_amount=float(state["fire_contribution_amount"]),
+        contribution_frequency=state["fire_contribution_frequency"],
+        fire_age=fire_age,
+        monthly_spending=float(state["fire_monthly_spending"]),
+        inflation_rate=float(state["fire_inflation_rate"]),
+        pension_enabled=bool(state["fire_pension_enabled"]),
+        pension_monthly_amount=float(state.get("fire_pension_monthly_amount", 0.0)),
+        pension_start_age=int(state.get("fire_pension_start_age", 67)),
+        pension_revaluation=float(state.get("fire_pension_revaluation", 1.0)),
+        tax_on_withdrawals=bool(state["fire_tax_on_withdrawals"]),
+        tax_rate=float(state["fire_tax_rate"]),
+        n_simulations=int(state["fire_n_simulations"]),
+        block_size=int(state["fire_block_size"]),
+        seed=int(state["fire_seed"]),
+    )
