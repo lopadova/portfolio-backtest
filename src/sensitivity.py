@@ -13,7 +13,7 @@ Usage from CLI (see backtest.py):
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass, replace as dataclass_replace
 from pathlib import Path
 from typing import List, Optional
 
@@ -24,6 +24,7 @@ import matplotlib.ticker as mtick
 
 from . import portfolio as portfolio_cfg
 from .data_loader import DataBundle
+from .portfolio_model import AssetAllocation, Portfolio
 from .rebalance import simulate_portfolio
 from .metrics import compute_all, cumulative_wealth
 
@@ -155,6 +156,98 @@ def _apply_param_override(param_name: str, value: float) -> None:
         raise ValueError(f"Unsupported sensitivity parameter: {param_name}. Choose from {list(SUPPORTED_PARAMS)}")
 
 
+_WEIGHT_PARAMS_PORTFOLIO = {
+    "gold", "dbi", "put_write", "nasdaq_top30", "momentum", "quality"
+}
+
+
+def _apply_param_override_on_portfolio(
+    portfolio: Portfolio, param_name: str, value: float
+) -> Portfolio:
+    """Return a NEW Portfolio with ``param_name`` set to ``value`` — without
+    mutating the input or any module global. Delta is absorbed by the
+    ``cash`` sleeve (analogous to the legacy globals path, which absorbed
+    from ``WEIGHTS['cash']``).
+
+    Supported params:
+      - weight-like: gold, dbi, put_write, nasdaq_top30, momentum, quality
+      - rebalance_freq (positive integer divisor of 12)
+
+    For ``options_budget`` the generic path raises ``NotImplementedError``:
+    decoupling the options overlay from the global ``OPTIONS`` dataclass
+    requires a per-Portfolio OptionsConfig, which is planned for PR5. Users
+    who want to sweep options_budget today can still run the sweep on the
+    default preset (portfolio=None).
+    """
+    if not isinstance(value, (int, float)) or not np.isfinite(value):
+        raise ValueError(f"Sensitivity value must be a finite number, got {value!r}")
+
+    if param_name in _WEIGHT_PARAMS_PORTFOLIO:
+        if not (0.0 <= value <= 1.0):
+            raise ValueError(f"{param_name} weight must be in [0, 1], got {value}")
+        current_weights = {a.key: a.weight for a in portfolio.assets}
+        if param_name not in current_weights:
+            raise ValueError(
+                f"Portfolio {portfolio.name!r} has no asset named {param_name!r}. "
+                f"Available assets: {sorted(current_weights)}"
+            )
+        if "cash" not in current_weights:
+            raise ValueError(
+                f"Portfolio {portfolio.name!r} has no 'cash' sleeve; cannot "
+                f"absorb sensitivity delta. Add an explicit 'cash' allocation "
+                f"or sweep a param on the legacy preset (portfolio=None)."
+            )
+        delta = value - current_weights[param_name]
+        new_cash = current_weights["cash"] - delta
+        if new_cash < 0.0:
+            raise ValueError(
+                f"{param_name}={value} would drive cash negative ({new_cash:.4f}). "
+                f"Current cash = {current_weights['cash']:.4f}, "
+                f"current {param_name} = {current_weights[param_name]:.4f}"
+            )
+        new_assets = [
+            AssetAllocation(
+                key=a.key,
+                weight=(
+                    value if a.key == param_name
+                    else new_cash if a.key == "cash"
+                    else a.weight
+                ),
+            )
+            for a in portfolio.assets
+        ]
+        return dataclass_replace(portfolio, assets=new_assets)
+
+    if param_name == "rebalance_freq":
+        if not float(value).is_integer():
+            raise ValueError(
+                f"rebalance_freq must be an integer, got {value}"
+            )
+        freq = int(value)
+        valid_divisors = (1, 2, 3, 4, 6, 12)
+        if freq not in valid_divisors:
+            raise ValueError(
+                f"rebalance_freq must be a divisor of 12 (one of {valid_divisors}), "
+                f"got {freq}"
+            )
+        step = 12 // freq
+        new_months = tuple(range(1, 13, step))[:freq]
+        return dataclass_replace(portfolio, rebalance_months=new_months)
+
+    if param_name == "options_budget":
+        raise NotImplementedError(
+            "Sweeping 'options_budget' with a custom Portfolio is not supported "
+            "in PR3 — the options overlay still reads the global OPTIONS config. "
+            "A per-Portfolio OptionsConfig is planned for PR5. Workaround: run "
+            "the sweep on the default preset (portfolio=None)."
+        )
+
+    raise ValueError(
+        f"Unsupported sensitivity parameter: {param_name}. "
+        f"Choose from {sorted(SUPPORTED_PARAMS)}"
+    )
+
+
 def _snapshot_config():
     """Deep-copy of the relevant config dataclasses for restoration after a sweep."""
     return {
@@ -179,19 +272,29 @@ def run_sensitivity_sweep(
     bundle: DataBundle,
     param_name: str,
     values: List[float],
+    portfolio: Optional[Portfolio] = None,
     risk_free_rate: float = 0.02,
     start_nav: float = 100_000.0,
 ) -> pd.DataFrame:
     """
-    Run the portfolio backtest once per value of `param_name`, collecting
-    summary statistics. Returns a DataFrame indexed by param_value with
+    Run the portfolio backtest once per value of ``param_name``, collecting
+    summary statistics. Returns a DataFrame indexed by ``param_value`` with
     one row per sweep point.
 
-    When sweeping `options_budget`, the options overlay is included in the
-    simulation (otherwise mutating OPTIONS.budget_nav_per_year would have
-    no effect on returns). For all other parameters, the core portfolio
-    (no overlay) is used — isolating the parameter's impact on the
-    underlying allocation.
+    Two modes, dispatched on ``portfolio``:
+
+    * ``portfolio is None`` (legacy) — mutates ``src.portfolio`` globals
+      around each run, then restores them. Identical to pre-PR3 behavior.
+    * ``portfolio is not None`` — applies the override to a **copy** of
+      the Portfolio per run; NEVER mutates any global. Supports the
+      weight-like params (gold, dbi, put_write, nasdaq_top30, momentum,
+      quality) and ``rebalance_freq``. ``options_budget`` raises
+      ``NotImplementedError`` — see ``_apply_param_override_on_portfolio``
+      for the rationale and PR5 workplan.
+
+    When sweeping ``options_budget`` (only valid on the legacy path), the
+    options overlay is included in the simulation; otherwise the core
+    portfolio is used to isolate the parameter's allocation impact.
     """
     if not values:
         raise ValueError(
@@ -199,55 +302,72 @@ def run_sensitivity_sweep(
             "Check --range/--step or --values CLI arguments."
         )
 
-    # When sweeping options_budget, include the overlay to actually measure its effect
+    # When sweeping options_budget (legacy only), include the overlay to
+    # actually measure its effect.
     include_overlay = (param_name == "options_budget")
 
-    snapshot = _snapshot_config()
     results: List[SensitivityResult] = []
 
-    try:
-        for value in values:
-            _restore_config(snapshot)  # always start from clean baseline
-            _apply_param_override(param_name, value)
+    if portfolio is None:
+        # Legacy path — globals mutation with snapshot/restore
+        snapshot = _snapshot_config()
+        try:
+            for value in values:
+                _restore_config(snapshot)  # always start from clean baseline
+                _apply_param_override(param_name, value)
 
-            # Core portfolio
+                returns = simulate_portfolio(
+                    bundle.monthly_returns_eur,
+                    bundle.btc_activation_date,
+                    apply_ter=True,
+                )
+                if include_overlay:
+                    from .options_overlay import simulate_options_overlay
+                    nav_series = cumulative_wealth(returns, start_nav)
+                    overlay_returns = simulate_options_overlay(
+                        spy_daily=bundle.spy_daily,
+                        qqq_daily=bundle.qqq_daily,
+                        vix_daily=bundle.vix_daily,
+                        rf_daily=bundle.rf_daily,
+                        nav_series=nav_series,
+                    )
+                    returns = returns + overlay_returns.reindex(returns.index).fillna(0.0)
+
+                stats = compute_all("sensitivity_run", returns, risk_free_rate)
+                results.append(_stats_to_result(param_name, value, stats))
+        finally:
+            _restore_config(snapshot)  # always clean up
+    else:
+        # Generic path — copy-based, no global mutation
+        for value in values:
+            adjusted = _apply_param_override_on_portfolio(portfolio, param_name, value)
             returns = simulate_portfolio(
                 bundle.monthly_returns_eur,
                 bundle.btc_activation_date,
                 apply_ter=True,
+                portfolio=adjusted,
             )
-
-            # Options overlay (only when sweeping options_budget)
-            if include_overlay:
-                from .options_overlay import simulate_options_overlay
-                nav_series = cumulative_wealth(returns, start_nav)
-                overlay_returns = simulate_options_overlay(
-                    spy_daily=bundle.spy_daily,
-                    qqq_daily=bundle.qqq_daily,
-                    vix_daily=bundle.vix_daily,
-                    rf_daily=bundle.rf_daily,
-                    nav_series=nav_series,
-                )
-                returns = returns + overlay_returns.reindex(returns.index).fillna(0.0)
-
+            # No overlay support on the generic path in PR3 (see override helper).
             stats = compute_all("sensitivity_run", returns, risk_free_rate)
-            results.append(SensitivityResult(
-                param_name=param_name,
-                param_value=value,
-                cagr=stats.cagr,
-                annualized_vol=stats.annualized_vol,
-                sharpe=stats.sharpe,
-                max_drawdown=stats.max_drawdown,
-                calmar=stats.calmar,
-                ulcer_index=stats.ulcer_index,
-                upi=stats.upi,
-                total_return=stats.total_return,
-            ))
-    finally:
-        _restore_config(snapshot)  # always clean up
+            results.append(_stats_to_result(param_name, value, stats))
 
     df = pd.DataFrame([asdict(r) for r in results]).set_index("param_value")
     return df
+
+
+def _stats_to_result(param_name: str, value: float, stats) -> SensitivityResult:
+    return SensitivityResult(
+        param_name=param_name,
+        param_value=value,
+        cagr=stats.cagr,
+        annualized_vol=stats.annualized_vol,
+        sharpe=stats.sharpe,
+        max_drawdown=stats.max_drawdown,
+        calmar=stats.calmar,
+        ulcer_index=stats.ulcer_index,
+        upi=stats.upi,
+        total_return=stats.total_return,
+    )
 
 
 def plot_sensitivity_results(df: pd.DataFrame, param_name: str, path: Path):
