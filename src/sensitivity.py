@@ -172,12 +172,10 @@ def _apply_param_override_on_portfolio(
     Supported params:
       - weight-like: gold, dbi, put_write, nasdaq_top30, momentum, quality
       - rebalance_freq (positive integer divisor of 12)
-
-    For ``options_budget`` the generic path raises ``NotImplementedError``:
-    decoupling the options overlay from the global ``OPTIONS`` dataclass
-    requires a per-Portfolio OptionsConfig, which is planned for PR5. Users
-    who want to sweep options_budget today can still run the sweep on the
-    default preset (portfolio=None).
+      - options_budget (PR7): builds a new OptionsConfig with the override
+        and stores it in ``portfolio.options_config``. The caller
+        (``run_sensitivity_sweep``) is responsible for actually invoking
+        the overlay so the budget change reaches the returns.
     """
     if not isinstance(value, (int, float)) or not np.isfinite(value):
         raise ValueError(f"Sensitivity value must be a finite number, got {value!r}")
@@ -235,12 +233,19 @@ def _apply_param_override_on_portfolio(
         return dataclass_replace(portfolio, rebalance_months=new_months)
 
     if param_name == "options_budget":
-        raise NotImplementedError(
-            "Sweeping 'options_budget' with a custom Portfolio is not supported "
-            "in PR3 — the options overlay still reads the global OPTIONS config. "
-            "A per-Portfolio OptionsConfig is planned for PR5. Workaround: run "
-            "the sweep on the default preset (portfolio=None)."
-        )
+        if not (0.0 <= value <= 1.0):
+            raise ValueError(
+                f"options_budget must be in [0, 1] (as fraction of NAV), got {value}"
+            )
+        # PR7: build a new OptionsConfig with the budget override. Start
+        # from the portfolio's existing options_config when set, otherwise
+        # from the OptionsConfig() defaults — never from the live global
+        # OPTIONS, so concurrent sweeps remain isolated.
+        from .portfolio import OptionsConfig as _OptionsConfig
+
+        base_cfg = portfolio.options_config or _OptionsConfig()
+        new_cfg = dataclass_replace(base_cfg, budget_nav_per_year=float(value))
+        return dataclass_replace(portfolio, options_config=new_cfg)
 
     raise ValueError(
         f"Unsupported sensitivity parameter: {param_name}. "
@@ -288,13 +293,13 @@ def run_sensitivity_sweep(
     * ``portfolio is not None`` — applies the override to a **copy** of
       the Portfolio per run; NEVER mutates any global. Supports the
       weight-like params (gold, dbi, put_write, nasdaq_top30, momentum,
-      quality) and ``rebalance_freq``. ``options_budget`` raises
-      ``NotImplementedError`` — see ``_apply_param_override_on_portfolio``
-      for the rationale and PR5 workplan.
+      quality), ``rebalance_freq``, and (PR7) ``options_budget`` via the
+      per-Portfolio ``options_config``.
 
-    When sweeping ``options_budget`` (only valid on the legacy path), the
-    options overlay is included in the simulation; otherwise the core
-    portfolio is used to isolate the parameter's allocation impact.
+    When sweeping ``options_budget``, the overlay is included in the
+    simulation on BOTH paths — otherwise a budget change wouldn't reach
+    the returns. For all other parameters the core portfolio (no overlay)
+    is used so the param's allocation impact is isolated.
     """
     if not values:
         raise ValueError(
@@ -347,7 +352,26 @@ def run_sensitivity_sweep(
                 apply_ter=True,
                 portfolio=adjusted,
             )
-            # No overlay support on the generic path in PR3 (see override helper).
+            if include_overlay:
+                # PR7: when sweeping options_budget on a custom Portfolio,
+                # run the overlay against the adjusted Portfolio's
+                # options_config (built by _apply_param_override_on_portfolio
+                # with the new budget). Without this, budget changes would
+                # produce identical core-only returns and the sweep chart
+                # would be a flat line.
+                from .options_overlay import simulate_options_overlay
+
+                nav_series = cumulative_wealth(returns, start_nav)
+                overlay_returns = simulate_options_overlay(
+                    spy_daily=bundle.spy_daily,
+                    qqq_daily=bundle.qqq_daily,
+                    vix_daily=bundle.vix_daily,
+                    rf_daily=bundle.rf_daily,
+                    nav_series=nav_series,
+                    rebalance_months=adjusted.rebalance_months,
+                    options_config=adjusted.options_config,
+                )
+                returns = returns + overlay_returns.reindex(returns.index).fillna(0.0)
             stats = compute_all("sensitivity_run", returns, risk_free_rate)
             results.append(_stats_to_result(param_name, value, stats))
 

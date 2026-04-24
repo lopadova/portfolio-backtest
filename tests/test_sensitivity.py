@@ -275,15 +275,52 @@ class TestSweepWithCustomPortfolio:
         with pytest.raises(ValueError, match="no 'cash' sleeve"):
             run_sensitivity_sweep(bundle, "gold", [0.10], portfolio=p)
 
-    def test_sweep_custom_portfolio_options_budget_not_supported(self):
-        """options_budget on a custom portfolio is explicitly blocked in PR3
-        — PR5 will introduce a per-Portfolio OptionsConfig that enables it."""
+    def test_sweep_custom_portfolio_options_budget_supported(self):
+        """PR7: options_budget on a custom portfolio is now supported via
+        Portfolio.options_config. The sweep must run end-to-end and
+        produce a DataFrame with one row per value."""
         bundle = _generate_synthetic_bundle()
-        with pytest.raises(NotImplementedError, match="PR5"):
-            run_sensitivity_sweep(
-                bundle, "options_budget", [0.003, 0.005],
-                portfolio=self._toy_portfolio(),
-            )
+        df = run_sensitivity_sweep(
+            bundle, "options_budget", [0.001, 0.005, 0.01],
+            portfolio=self._toy_portfolio(),
+        )
+        assert len(df) == 3
+        assert list(df.index) == [0.001, 0.005, 0.01]
+
+    def test_sweep_options_budget_does_not_mutate_globals_or_input(self):
+        """Critical PR7 invariant: sweeping options_budget on a custom
+        Portfolio must not mutate the global OPTIONS, nor the input
+        Portfolio's options_config."""
+        from src.portfolio import OPTIONS
+
+        bundle = _generate_synthetic_bundle()
+        before_global_budget = OPTIONS.budget_nav_per_year
+        p = self._toy_portfolio()
+        # No options_config on the input -> stays None after the sweep
+        assert p.options_config is None
+
+        run_sensitivity_sweep(
+            bundle, "options_budget", [0.002, 0.008],
+            portfolio=p,
+        )
+        assert OPTIONS.budget_nav_per_year == before_global_budget
+        assert p.options_config is None  # input unchanged
+
+    def test_sweep_options_budget_produces_varying_cagr(self):
+        """The sweep must actually be effective — different budget values
+        must yield different CAGRs (overlay is included on the generic
+        path when sweeping options_budget). A CAGR series with all
+        identical values would mean the budget change isn't reaching
+        the engine."""
+        bundle = _generate_synthetic_bundle()
+        df = run_sensitivity_sweep(
+            bundle, "options_budget", [0.0001, 0.005, 0.01],
+            portfolio=self._toy_portfolio(),
+        )
+        # At minimum, not all 3 CAGRs should be exactly equal (overlay
+        # cost scales with budget so flat market means lower budget
+        # = less premium spent = different total return).
+        assert df["cagr"].nunique() > 1
 
     def test_sweep_custom_portfolio_rebalance_freq(self):
         """rebalance_freq IS supported on the generic path — rebalance_months
