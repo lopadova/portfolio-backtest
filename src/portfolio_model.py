@@ -309,8 +309,11 @@ class Portfolio:
     def to_toml(self) -> str:
         """Emit a TOML representation of this Portfolio, including the
         ``[metrics]`` section when ``cached_metrics`` is set. Hand-rolled
-        to keep the module stdlib-only; covers the exact schema read by
-        :meth:`from_dict`."""
+        to avoid pulling in a third-party TOML writer; covers the exact
+        schema read by :meth:`from_dict`. Note that this module itself is
+        not stdlib-only — it imports pandas for timestamp handling — so
+        the rationale is "no extra TOML-writer dep", not "zero 3rd-party
+        imports"."""
         return _dump_toml(self)
 
     def save_to(self, path: str | Path, overwrite: bool = False) -> Path:
@@ -434,13 +437,16 @@ def _parse_iso_datetime(raw: Any) -> datetime:
 
 def list_available_presets(root: Path = DEFAULT_PORTFOLIOS_DIR) -> List[dict]:
     """Return one dict per preset in ``root``. Schema:
-    ``{name, display_name, path, n_assets, notes, cached_metrics}``.
+    ``{name, display_name, path, n_assets, notes, cached_metrics, is_reserved}``.
 
-    ``cached_metrics`` is the parsed ``PortfolioMetricsCache`` when the
-    TOML has a ``[metrics]`` section, else ``None``.
+    - ``cached_metrics``: parsed :class:`PortfolioMetricsCache` when the
+      TOML has a ``[metrics]`` section, else ``None``.
+    - ``is_reserved``: ``True`` when the preset slug is in
+      :data:`RESERVED_PRESET_SLUGS` (i.e. shipped with the repo and
+      protected against save/overwrite/delete via the CLI or UI).
 
-    Errors on individual files are caught so one malformed preset doesn't
-    break listing the others.
+    Errors on individual files are caught so one malformed preset
+    doesn't break listing the others.
     """
     root = Path(root)
     if not root.is_dir():

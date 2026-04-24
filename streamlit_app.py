@@ -95,7 +95,6 @@ from src.portfolio_model import (
     DEFAULT_PORTFOLIOS_DIR,
     Portfolio,
     PortfolioMetricsCache,
-    RESERVED_PRESET_SLUGS,
     list_available_presets,
     slugify,
 )
@@ -1360,10 +1359,33 @@ with tab_saved:
                             ]
                             st.session_state["options_overlay"] = _loaded.options_overlay
                             st.session_state["transaction_cost_bps"] = _loaded.transaction_cost_bps
-                            for _label, _months in _REBALANCE_FREQ_TO_MONTHS.items():
-                                if _months == _loaded.rebalance_months:
-                                    st.session_state["rebalance_freq"] = _label
-                                    break
+                            # Map the preset's rebalance_months tuple back to
+                            # one of the 4 UI labels. If the preset uses a
+                            # custom cadence (valid in the Portfolio model but
+                            # not selectable from the radio), fall back to the
+                            # first UI option and warn the user — otherwise the
+                            # Impostazioni tab would silently keep the PREVIOUS
+                            # selection, masking the mismatch.
+                            _matched_label = next(
+                                (
+                                    _label
+                                    for _label, _months in _REBALANCE_FREQ_TO_MONTHS.items()
+                                    if _months == _loaded.rebalance_months
+                                ),
+                                None,
+                            )
+                            if _matched_label is None:
+                                _fallback_label = next(iter(_REBALANCE_FREQ_TO_MONTHS))
+                                st.session_state["rebalance_freq"] = _fallback_label
+                                st.warning(
+                                    f"Il preset usa rebalance_months={_loaded.rebalance_months} "
+                                    "— non tra le opzioni della radio UI "
+                                    f"({list(_REBALANCE_FREQ_TO_MONTHS.keys())}). "
+                                    f"Selezionata la predefinita {_fallback_label!r}; "
+                                    "modifica manualmente se necessario."
+                                )
+                            else:
+                                st.session_state["rebalance_freq"] = _matched_label
                             st.success(
                                 f"Caricato {_loaded.name!r}. Vai nel tab ⚙️ Impostazioni e premi "
                                 "▶ Run backtest per rieseguire."

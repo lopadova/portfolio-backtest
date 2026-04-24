@@ -389,8 +389,12 @@ def _print_preset_listing() -> None:
     """Implementation of ``--list-portfolios``: enumerate presets and exit.
 
     PR6: shows cached CAGR / Vol / MaxDD / Period when the preset's TOML
-    carries a ``[metrics]`` section; otherwise prints "—" in those columns.
-    Reserved presets (shipped Four Umbrellas, ...) are flagged with "📌".
+    carries a ``[metrics]`` section; otherwise prints ``-`` in those
+    columns. Reserved presets (shipped Four Umbrellas, ...) are flagged
+    with an ASCII ``*`` prefix. All output stays ASCII-only: emoji /
+    em-dash / arrow characters crash Windows' default cp1252 stdout codec
+    and that's not negotiable for a CLI meant to run anywhere (see the
+    "ASCII-only CLI output" theme in LESSONS.md).
     """
     entries = list_available_presets()
     if not entries:
