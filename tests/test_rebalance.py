@@ -70,6 +70,64 @@ class TestSimulatePortfolio:
         assert len(out) == len(synthetic_returns)
         # No assertion on values beyond "runs without error" — BTC behavior is implicit
 
+    def test_legacy_shim_equals_explicit_four_umbrellas_portfolio(
+        self, synthetic_returns
+    ):
+        """PR2 regression: calling simulate_portfolio without a portfolio=
+        (legacy path, reads module globals) must produce a return series
+        bit-identical to calling it with the Four Umbrellas preset loaded
+        from portfolios/four_umbrellas.toml. This is the guardrail that
+        proves the shim doesn't drift from the pre-PR2 behavior."""
+        from pathlib import Path
+
+        from src.portfolio_model import Portfolio
+
+        btc_date = pd.Timestamp("2020-01-01")
+        preset = Portfolio.from_toml(
+            Path(__file__).resolve().parent.parent
+            / "portfolios"
+            / "four_umbrellas.toml"
+        )
+
+        legacy = simulate_portfolio(
+            synthetic_returns, btc_activation_date=btc_date, apply_ter=True
+        )
+        explicit = simulate_portfolio(
+            synthetic_returns,
+            btc_activation_date=btc_date,
+            apply_ter=True,
+            portfolio=preset,
+        )
+
+        # Series must match to float-precision; names may differ (legacy is
+        # "four_umbrellas", explicit uses the slugified portfolio.name which
+        # for "Four Umbrellas" is ALSO "four_umbrellas" → same).
+        assert explicit.name == legacy.name
+        pd.testing.assert_series_equal(
+            explicit, legacy, check_exact=False, atol=1e-12, rtol=0
+        )
+
+    def test_generic_engine_runs_on_custom_portfolio(self, synthetic_returns):
+        """simulate_portfolio_generic works for an arbitrary 3-asset portfolio
+        with no BTC and a custom cash weight — no globals involved."""
+        from src.portfolio_model import AssetAllocation, Portfolio
+        from src.rebalance import simulate_portfolio_generic
+
+        p = Portfolio(
+            name="Toy",
+            assets=[
+                AssetAllocation("gold", 0.4),
+                AssetAllocation("quality", 0.4),
+                AssetAllocation("cash", 0.2),
+            ],
+        )
+        out = simulate_portfolio_generic(
+            synthetic_returns, p, ter_by_key=None, btc_activation_date=None
+        )
+        assert isinstance(out, pd.Series)
+        assert len(out) == len(synthetic_returns)
+        assert out.name == "toy"
+
 
 class TestSimulateBenchmark:
     @pytest.fixture
