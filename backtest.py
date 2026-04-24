@@ -15,6 +15,7 @@ Outputs go to ./output/ by default.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import sys
 import tomllib
 from pathlib import Path
@@ -36,7 +37,13 @@ import numpy as np
 import pandas as pd
 
 from src.data_loader import load_data, DataBundle
-from src.portfolio_model import Portfolio, list_available_presets
+from src.portfolio_model import (
+    DEFAULT_PORTFOLIOS_DIR,
+    Portfolio,
+    PortfolioMetricsCache,
+    list_available_presets,
+    slugify,
+)
 from src.rebalance import simulate_portfolio, simulate_benchmark
 from src.options_overlay import simulate_options_overlay
 from src.metrics import (
@@ -103,6 +110,16 @@ def parse_args(argv=None):
              "_resolve_portfolio_or_exit()).")
     p.add_argument("--list-portfolios", action="store_true",
         help="List available preset portfolios (portfolios/*.toml) and exit.")
+
+    # Portfolio persistence (PR6)
+    p.add_argument("--save-as", type=str, default=None, metavar="NAME",
+        help="After a successful run, save the portfolio (composition + cached "
+             "metrics) to portfolios/<slug(NAME)>.toml. Slug is derived via "
+             "src.portfolio_model.slugify. Fails with exit 2 on collision "
+             "unless --overwrite is also set. Rejects names that slug to a "
+             "reserved preset (currently 'four_umbrellas').")
+    p.add_argument("--overwrite", action="store_true",
+        help="Allow --save-as to replace an existing portfolios/<slug>.toml.")
 
     return p.parse_args(argv)
 
@@ -369,15 +386,42 @@ def run_sensitivity(args, bundle=None, portfolio: Portfolio | None = None):
 
 
 def _print_preset_listing() -> None:
-    """Implementation of ``--list-portfolios``: enumerate presets and exit."""
+    """Implementation of ``--list-portfolios``: enumerate presets and exit.
+
+    PR6: shows cached CAGR / Vol / MaxDD / Period when the preset's TOML
+    carries a ``[metrics]`` section; otherwise prints "—" in those columns.
+    Reserved presets (shipped Four Umbrellas, ...) are flagged with "📌".
+    """
     entries = list_available_presets()
     if not entries:
         print("No presets found in portfolios/ directory.")
         return
-    print(f"{'name':<30} {'assets':>6}  description")
-    print("-" * 70)
+    print(
+        f"{'name':<24} {'as':>3}  {'CAGR':>7}  {'Vol':>7}  {'MaxDD':>7}  "
+        f"{'Period':<18}  description"
+    )
+    print("-" * 110)
     for e in entries:
-        print(f"{e['name']:<30} {e['n_assets']:>6}  {e['notes'] or e['display_name']}")
+        # ASCII '*' marker for reserved presets (emoji 📌 crashes Windows cp1252).
+        name_col = f"* {e['name']}" if e.get("is_reserved") else f"  {e['name']}"
+        m = e.get("cached_metrics")
+        if m is not None:
+            cagr = f"{m.cagr * 100:6.2f}%"
+            vol = f"{m.annualized_vol * 100:6.2f}%"
+            maxdd = f"{m.max_drawdown * 100:6.2f}%"
+            # Plain ASCII arrow: Windows cp1252 can't encode U+2192.
+            period = (
+                f"{m.period_start.date().isoformat()[:7]} -> "
+                f"{m.period_end.date().isoformat()[:7]}"
+            )
+        else:
+            cagr = vol = maxdd = "-"
+            period = "-"
+        desc = e["notes"] or e["display_name"]
+        print(
+            f"{name_col:<24} {e['n_assets']:>3}  {cagr:>7}  {vol:>7}  {maxdd:>7}  "
+            f"{period:<18}  {desc}"
+        )
 
 
 _DEFAULT_PORTFOLIO_NAME = "four_umbrellas"
@@ -424,6 +468,86 @@ def _is_default_portfolio_spec(spec: str | None) -> bool:
         )
         return resolved == default_path
     return False
+
+
+def _build_metrics_cache(
+    returns_dict: Dict[str, pd.Series],
+    portfolio: Portfolio,
+    bundle_slice_start: pd.Timestamp,
+    bundle_slice_end: pd.Timestamp,
+) -> PortfolioMetricsCache:
+    """Produce the :class:`PortfolioMetricsCache` for ``--save-as``.
+
+    Picks the representative return series in preference order:
+    1. `<portfolio.name>` (with options overlay)
+    2. `<portfolio.name> (no options)`
+    3. first series in the dict (defensive fallback)
+
+    Timestamps are tz-naive; period_{start,end} come from the actually-
+    simulated slice so the saved TOML matches exactly what the CLI ran.
+    """
+    from datetime import datetime
+
+    from src.metrics import compute_all
+
+    preferred_keys = (
+        portfolio.name,
+        f"{portfolio.name} (no options)",
+    )
+    series_name = next(
+        (k for k in preferred_keys if k in returns_dict),
+        next(iter(returns_dict)),
+    )
+    returns = returns_dict[series_name]
+    stats = compute_all(series_name, returns)
+    return PortfolioMetricsCache(
+        cagr=float(stats.cagr),
+        annualized_vol=float(stats.annualized_vol),
+        max_drawdown=float(stats.max_drawdown),
+        period_start=pd.Timestamp(bundle_slice_start),
+        period_end=pd.Timestamp(bundle_slice_end),
+        run_timestamp=datetime.utcnow().replace(microsecond=0),
+    )
+
+
+def _save_portfolio_or_exit(
+    portfolio: Portfolio,
+    name: str,
+    overwrite: bool,
+    metrics_cache: PortfolioMetricsCache,
+    root: Path = DEFAULT_PORTFOLIOS_DIR,
+) -> Path:
+    """Save ``portfolio`` (with ``metrics_cache`` attached) under
+    ``root / f'{slugify(name)}.toml'``. Exit 2 with a clean stderr message
+    on any validation / collision / reserved-name failure so the CLI
+    doesn't surface a traceback for user errors.
+    """
+    try:
+        slug = slugify(name)
+    except ValueError as e:
+        print(f"ERROR --save-as {name!r}: {e}", file=sys.stderr)
+        sys.exit(2)
+
+    target = root / f"{slug}.toml"
+    # Write on a copy of the portfolio so we don't mutate the caller's object.
+    to_save = dataclasses.replace(
+        portfolio, name=name, cached_metrics=metrics_cache,
+    )
+    try:
+        written = to_save.save_to(target, overwrite=overwrite)
+    except FileExistsError as e:
+        print(
+            f"ERROR --save-as: {e} Pass --overwrite to replace it.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    except ValueError as e:
+        print(f"ERROR --save-as: {e}", file=sys.stderr)
+        sys.exit(2)
+    # Plain-ASCII label: emoji in CLI stdout crashes on Windows terminals
+    # whose default codec is cp1252 (LESSONS theme: CLI output stays ASCII).
+    print(f"\n[SAVED] Portfolio written to: {written}")
+    return written
 
 
 def _engine_portfolio(args, portfolio: Portfolio) -> Portfolio | None:
@@ -579,6 +703,18 @@ def main():
     )
     print(f"  Report: {report_path.resolve()}")
     print("\nDone.  Open output/REPORT.md in any Markdown viewer (VS Code, GitHub, Typora) to see the full report with all charts and tables inline.")
+
+    # PR6 — optional persistence. Runs LAST so the metrics cache captures
+    # the final numbers from the completed run.
+    if args.save_as is not None:
+        metrics_cache = _build_metrics_cache(
+            returns_dict, portfolio,
+            bundle.monthly_returns_eur.index[0],
+            bundle.monthly_returns_eur.index[-1],
+        )
+        _save_portfolio_or_exit(
+            portfolio, args.save_as, args.overwrite, metrics_cache,
+        )
 
 
 if __name__ == "__main__":
