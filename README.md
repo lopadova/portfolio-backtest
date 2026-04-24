@@ -1,7 +1,7 @@
 # Four Umbrellas Portfolio — Backtest Engine
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
-[![Python: 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
+[![Python: 3.11–3.14](https://img.shields.io/badge/Python-3.11%E2%80%933.14-blue.svg)](https://www.python.org/)
 [![Tests](https://img.shields.io/github/actions/workflow/status/padosoft/four-umbrellas-backtest/tests.yml?branch=main&label=tests)](https://github.com/padosoft/four-umbrellas-backtest/actions/workflows/tests.yml)
 [![Tests](https://img.shields.io/badge/tests-267%20passing-brightgreen.svg)](#testing)
 [![Status: v2.0](https://img.shields.io/badge/Status-v2.0-success.svg)](#whats-new)
@@ -22,9 +22,21 @@ This codebase is the open-source companion to the Medium article [*"The Four Umb
 <a id="tldr"></a>
 ## ⚡ TL;DR — try it in 30 seconds
 
+> **Python newcomers, read this first.** Every `python …` command below assumes you've already activated the project virtual environment in your current terminal. If you haven't, the script will stop with a clear error explaining the two ways to fix it. The full step-by-step install (venv creation + activation + deps) is in [**Installing from scratch**](#install) — do that once, then come back here.
+
 ```bash
 git clone https://github.com/padosoft/four-umbrellas-backtest.git
 cd four-umbrellas-backtest
+
+# 1) Create the virtual environment (once)
+python -m venv .venv
+
+# 2) Activate it IN THIS TERMINAL (needed every time you open a new terminal)
+#    Windows PowerShell:  .venv\Scripts\Activate.ps1
+#    Windows cmd.exe:     .venv\Scripts\activate.bat
+#    macOS / Linux:       source .venv/bin/activate
+
+# 3) Install deps (once)
 pip install -r requirements.txt
 
 # OPTION A — full CLI report with synthetic data (no data files needed)
@@ -41,17 +53,24 @@ python fire.py --age 45 --sex M --capital 100000 --contributions 1000 \
     --fire-age 60 --spending 2500 --pension --pension-amount 1500 --pension-age 67
 
 # OPTION D — have an LLM critique your portfolio
-export OPENROUTER_API_KEY="sk-or-..."
+#    Put your key in a .env file (see the "AI analysis" section), then:
 python backtest.py && python analyze.py --results output/
 ```
 
-Jump to: [**CLI reference**](#cli) · [**GUI launch**](#dashboard-local) · [**FIRE**](#fire) · [**AI**](#ai) · [**Deploy to Cloud/HF**](#deploy-public)
+> **Don't want to activate the venv?** You can always invoke the venv's Python directly instead of `python` — skip activation entirely and use:
+> - Windows: `.venv\Scripts\python.exe backtest.py --synthetic`
+> - macOS / Linux: `.venv/bin/python backtest.py --synthetic`
+>
+> That form works in any shell, any terminal, with zero configuration.
+
+Jump to: [**Install**](#install) · [**CLI reference**](#cli) · [**GUI launch**](#dashboard-local) · [**FIRE**](#fire) · [**AI**](#ai) · [**Deploy to Cloud/HF**](#deploy-public)
 
 ---
 
 ## Table of contents
 
 - [⚡ TL;DR — try it in 30 seconds](#tldr)
+- [🛠️ Installing from scratch (step-by-step)](#install)
 - [What's new in v2.0 🚀](#whats-new)
 - [🌟 Why you'll actually enjoy using this](#why)
 - [📋 CLI reference — everything you can do from the terminal](#cli)
@@ -75,6 +94,122 @@ Jump to: [**CLI reference**](#cli) · [**GUI launch**](#dashboard-local) · [**F
 - [Contributing](#contributing)
 - [Citation](#citation)
 - [License & legal](#license--legal)
+
+---
+
+<a id="install"></a>
+## 🛠️ Installing from scratch (step-by-step)
+
+Written for readers who "just want to double-click run"— if you already know what a venv is, skip to the [CLI reference](#cli).
+
+### 1. Prerequisites
+
+- **Python 3.11, 3.12, 3.13, or 3.14** — download from [python.org](https://www.python.org/downloads/) if you don't have it. On Windows, tick *"Add python.exe to PATH"* in the installer.
+- **Git** — [git-scm.com](https://git-scm.com/downloads)
+- A terminal. On Windows, either **PowerShell** (built-in) or **Git Bash** (ships with Git) both work.
+
+Check that Python is installed:
+
+```bash
+python --version
+# expected: Python 3.11.x  (or 3.12 / 3.13 / 3.14)
+```
+
+### 2. Clone the project and enter the folder
+
+```bash
+git clone https://github.com/padosoft/four-umbrellas-backtest.git
+cd four-umbrellas-backtest
+```
+
+Everything below assumes your terminal is inside this `four-umbrellas-backtest/` folder.
+
+### 3. Create the virtual environment (once, ~10 seconds)
+
+A virtual environment is a private, project-local copy of Python that keeps this project's dependencies isolated from the rest of your system.
+
+```bash
+python -m venv .venv
+```
+
+You now have a `.venv/` folder in the project. Do not edit it; Git ignores it.
+
+### 4. Activate the venv IN YOUR CURRENT TERMINAL
+
+**This is the step most people miss.** You must activate the venv every time you open a new terminal window. If you skip it, the scripts will stop with a clear error and point you back here.
+
+| Terminal | Activation command |
+|---|---|
+| **Windows PowerShell** | `.venv\Scripts\Activate.ps1` |
+| **Windows cmd.exe** | `.venv\Scripts\activate.bat` |
+| **Windows Git Bash / WSL** | `source .venv/Scripts/activate` |
+| **macOS / Linux** | `source .venv/bin/activate` |
+
+You'll know activation worked when your prompt gets a `(.venv)` prefix:
+
+```text
+(.venv) PS C:\Users\you\four-umbrellas-backtest>
+```
+
+> **PowerShell says "running scripts is disabled"?** Run this once, answer `Y`, then retry activation:
+>
+> ```powershell
+> Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+> ```
+
+> **Prefer zero activation?** Replace every `python …` command in this README with `.venv\Scripts\python.exe …` (Windows) or `.venv/bin/python …` (macOS/Linux). It's the same thing — the venv's Python knows to use its own packages.
+
+### 5. Install the dependencies (once, ~1 minute)
+
+```bash
+pip install -r requirements.txt
+```
+
+For the Streamlit dashboard, also install:
+
+```bash
+pip install -r requirements-dashboard.txt
+```
+
+For running tests locally:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+### 6. First run — verify the pipeline works
+
+```bash
+python backtest.py --synthetic
+```
+
+You should see progress logs and `output/REPORT.md` appear at the end. If this works, you're done installing.
+
+### 7. (Optional) Set up an `.env` for AI analysis
+
+If you want [AI analysis](#ai), create a `.env` file at the project root:
+
+```bash
+# Windows (PowerShell)
+Copy-Item .env.example .env
+
+# macOS / Linux
+cp .env.example .env
+```
+
+Then open `.env` in any text editor and paste your API key(s). See the [AI section](#ai) for the full guide.
+
+### 8. Every session after that
+
+Each new terminal window:
+
+```bash
+cd four-umbrellas-backtest
+.venv\Scripts\Activate.ps1    # (or the right activation command for your shell)
+python backtest.py --synthetic --monte-carlo   # or any other command
+```
+
+That's the entire loop. If something ever fails with `ModuleNotFoundError: No module named 'pandas'`, it means step 4 (activation) was skipped in that terminal — just run it again.
 
 ---
 
@@ -473,32 +608,154 @@ Send backtest results to an LLM for qualitative analysis (punti di forza, debole
 
 ### Provider support
 
-| Provider | Env var | Default model |
+| Provider | Env var for the key | Default model (change with `--model`) |
 |---|---|---|
-| **OpenRouter** (default) | `OPENROUTER_API_KEY` | `anthropic/claude-opus-4-7` |
+| **OpenRouter** (default — one key, many models) | `OPENROUTER_API_KEY` | `anthropic/claude-opus-4-7` |
 | OpenAI | `OPENAI_API_KEY` | `gpt-4o` |
 | Anthropic | `ANTHROPIC_API_KEY` | `claude-opus-4-7` |
-| Local (Ollama/vLLM/LM Studio) | — | `kimi-k2-0.6b` (configurable) |
+| Local (Ollama / vLLM / LM Studio) | — (usually no key) | `kimi-k2-0.6b` |
 
-For **local**, set `LOCAL_API_BASE_URL` (default `http://localhost:11434/v1` for Ollama).
+For a **local** provider, optionally set `LOCAL_API_BASE_URL` (default `http://localhost:11434/v1` for Ollama).
 
-### Usage
+<a id="ai-env-setup"></a>
+### 🔑 Configure your API key with a `.env` file (recommended)
+
+The project reads API keys from a plain-text `.env` file at the project root. This is the easiest path for everyone who isn't already comfortable with `export` / `setx`.
+
+#### 1. Where does the file go?
+
+At the **project root** — the same folder that contains `backtest.py`, `fire.py`, `analyze.py`, and `requirements.txt`:
+
+```text
+four-umbrellas-backtest/
+├── backtest.py
+├── fire.py
+├── analyze.py
+├── .env              ← HERE (you create it)
+├── .env.example      ← template shipped with the repo
+├── requirements.txt
+├── src/
+└── …
+```
+
+The file is named **exactly `.env`** — with the leading dot, no extension. On Windows Explorer, enable "File name extensions" to avoid accidentally creating `.env.txt`.
+
+`.env` is already listed in `.gitignore`, so your keys will never be committed.
+
+#### 2. Create it from the template
 
 ```bash
-# Default: OpenRouter
-export OPENROUTER_API_KEY="sk-or-..."
-python backtest.py  # run first to generate output/REPORT.md
+# Windows (PowerShell)
+Copy-Item .env.example .env
+
+# Windows (cmd.exe)
+copy .env.example .env
+
+# macOS / Linux
+cp .env.example .env
+```
+
+#### 3. Edit `.env` and paste your key(s)
+
+Open `.env` in any text editor (Notepad, VS Code, nano, …) and replace the placeholder with your real key. Set ONLY the provider(s) you actually use — leave the others as placeholders or delete their lines.
+
+```dotenv
+# Example — OpenRouter (recommended, single key for many models)
+OPENROUTER_API_KEY=sk-or-v1-abc123yourrealkeyhere
+
+# If you'd rather use OpenAI directly:
+# OPENAI_API_KEY=sk-proj-xxxxxx
+
+# If you'd rather use Anthropic directly:
+# ANTHROPIC_API_KEY=sk-ant-xxxxxx
+
+# Local (Ollama), no key needed. Only uncomment if your endpoint isn't the default:
+# LOCAL_API_BASE_URL=http://localhost:11434/v1
+```
+
+Format rules:
+- `KEY=value`, one per line.
+- No spaces around `=`.
+- Quotes (`"…"`) are allowed but not required.
+- Lines starting with `#` are comments. Blank lines are ignored.
+- Real shell environment variables (if you already `export`ed them) **always win** over `.env`, so you can override per-session.
+
+#### 4. Where do I get the keys?
+
+| Provider | Sign up | Key page |
+|---|---|---|
+| OpenRouter | [openrouter.ai](https://openrouter.ai) | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| OpenAI | [platform.openai.com](https://platform.openai.com) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| Anthropic | [console.anthropic.com](https://console.anthropic.com) | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) |
+
+### 💡 How to pick the AI model
+
+The `--model` flag on `analyze.py` (or the "Model" input in the Streamlit dashboard) lets you switch models without touching the code. If you don't pass `--model`, the provider's default (see table above) is used.
+
+```bash
+# Use the provider's default model (OpenRouter → claude-opus-4-7)
 python analyze.py --results output/
 
-# Different provider
+# Explicit model via OpenRouter — any model IDslug the provider supports
+python analyze.py --results output/ --provider openrouter --model anthropic/claude-opus-4-7
+python analyze.py --results output/ --provider openrouter --model openai/gpt-4o
+python analyze.py --results output/ --provider openrouter --model google/gemini-2.5-pro
+python analyze.py --results output/ --provider openrouter --model meta-llama/llama-3.3-70b-instruct
+
+# Direct OpenAI
+python analyze.py --results output/ --provider openai --model gpt-4o-mini
+
+# Direct Anthropic
+python analyze.py --results output/ --provider anthropic --model claude-sonnet-4-6
+
+# Local (Ollama — just run `ollama pull <model>` first)
+python analyze.py --results output/ --provider local --model llama3.1
+```
+
+Full list of OpenRouter model slugs: [openrouter.ai/models](https://openrouter.ai/models).
+
+### Usage (end-to-end)
+
+```bash
+# (one-time) Put your key in .env — see section above.
+
+# 1) Generate the report
+python backtest.py
+
+# 2) Send it to the LLM — default provider OpenRouter, default model Claude Opus 4.7
+python analyze.py --results output/
+
+# Same thing, different provider
 python analyze.py --results output/ --provider anthropic
 python analyze.py --results output/ --provider local --model kimi-k2
 
-# Include sensitivity CSV as extra context
+# Include a sensitivity CSV as extra context for the model
 python analyze.py --results output/ --extra output/sensitivity/gold.csv
 ```
 
 Output: `output/AI_ANALYSIS.md` — structured Italian Markdown with 5 sections (diagnosi forze, debolezze, raccomandazioni numeriche, caveat, verdetto).
+
+### Alternative: shell environment variables (no `.env` file)
+
+If you prefer not to use a `.env` file, export the variables directly in your shell. These override anything in `.env`:
+
+```bash
+# macOS / Linux / Git Bash
+export OPENROUTER_API_KEY="sk-or-v1-..."
+
+# Windows PowerShell (current session only)
+$env:OPENROUTER_API_KEY = "sk-or-v1-..."
+
+# Windows PowerShell (persisted across sessions)
+[System.Environment]::SetEnvironmentVariable("OPENROUTER_API_KEY", "sk-or-v1-...", "User")
+
+# Windows cmd.exe (current session only)
+set OPENROUTER_API_KEY=sk-or-v1-...
+```
+
+### Streamlit Cloud / HuggingFace Spaces
+
+When deploying the dashboard, configure the same variable names as *secrets* in the hosting platform's UI — they land in `os.environ` automatically and are picked up by the same code path as the local `.env`. The `.env` file itself is `.gitignored` and never reaches the deployment.
 
 ---
 
@@ -548,7 +805,7 @@ Output: scatter plot with 50k portfolios colored by Sharpe + smooth Markowitz fr
 
 ### Prerequisites
 
-- **Python 3.11 or newer** (tested on 3.11, 3.12)
+- **Python 3.11 or newer** (tested on 3.11, 3.12, 3.13, 3.14)
 - **500 MB free disk space** for data (more if you store multiple runs)
 - **Internet connection** for the initial data fetch
 - **Registration accounts (all free)** for MSCI, CBOE, SG, S&P, FTSE data portals — see data/README.md
@@ -556,11 +813,13 @@ Output: scatter plot with 50k portfolios colored by Sharpe + smooth Markowitz fr
 
 ### Step 1 — Install
 
+See the full, step-by-step guide in [**Installing from scratch**](#install). The short version (if you already know venvs):
+
 ```bash
 git clone https://github.com/padosoft/four-umbrellas-backtest.git
 cd four-umbrellas-backtest
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
+source .venv/bin/activate   # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 

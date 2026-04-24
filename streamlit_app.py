@@ -16,6 +16,13 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+# Load OPENROUTER_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY / LOCAL_API_BASE_URL
+# from a `.env` at the project root before anything reads os.environ. Real env
+# vars and Streamlit Cloud secrets still take precedence (override=False).
+from src.env_check import load_dotenv  # stdlib-only, safe to import first
+
+load_dotenv()
+
 import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st

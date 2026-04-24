@@ -19,6 +19,18 @@ import sys
 from pathlib import Path
 from typing import Dict, List
 
+# Run the environment check BEFORE importing any third-party package —
+# otherwise users who forget to activate the venv get a raw
+# `ModuleNotFoundError` traceback instead of guidance.
+from src.env_check import require_runtime_deps, load_dotenv  # stdlib-only
+require_runtime_deps(
+    ["pandas", "numpy", "matplotlib", "scipy"],
+    script_name="backtest.py",
+)
+# Optional: load API keys from a .env file at the project root if --ai-analysis
+# is used. Real env vars take precedence; no-op when .env is absent.
+load_dotenv()
+
 import numpy as np
 import pandas as pd
 
@@ -47,7 +59,7 @@ DEFAULT_END = "2024-12-31"
 OUTPUT_DIR = Path(__file__).parent / "output"
 
 
-def parse_args():
+def parse_args(argv=None):
     p = argparse.ArgumentParser(description="Four Umbrellas Portfolio — 20-year backtest")
     p.add_argument("--start", type=str, default=DEFAULT_START, help=f"Start date YYYY-MM-DD (default: {DEFAULT_START})")
     p.add_argument("--end", type=str, default=DEFAULT_END, help=f"End date YYYY-MM-DD (default: {DEFAULT_END})")
@@ -80,7 +92,7 @@ def parse_args():
     p.add_argument("--efficient-frontier", action="store_true", help="Compute and plot the efficient frontier")
     p.add_argument("--n-random", type=int, default=50_000, help="Random portfolios for frontier cloud (default: 50k)")
 
-    return p.parse_args()
+    return p.parse_args(argv)
 
 
 def run_backtest(bundle: DataBundle, enable_options: bool, start_nav: float, args) -> Dict[str, pd.Series]:

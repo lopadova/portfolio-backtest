@@ -20,6 +20,15 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+# ai_analyzer uses only stdlib (urllib), so no third-party deps are strictly
+# required — but we still guard so the venv-not-activated user sees guidance
+# instead of "ModuleNotFoundError: src" when the project path isn't set up.
+from src.env_check import require_runtime_deps, load_dotenv  # stdlib-only
+require_runtime_deps([], script_name="analyze.py")
+# Load OPENROUTER_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY / LOCAL_API_BASE_URL
+# from a .env file at the project root if present. Real env vars take precedence.
+load_dotenv()
+
 from src.ai_analyzer import (
     get_analyzer,
     build_analysis_prompt,
@@ -28,7 +37,7 @@ from src.ai_analyzer import (
 )
 
 
-def parse_args():
+def parse_args(argv=None):
     p = argparse.ArgumentParser(description="AI analysis of backtest results")
     p.add_argument("--results", type=Path, default=Path("output"),
                    help="Path to the output directory containing REPORT.md")
@@ -42,7 +51,7 @@ def parse_args():
                    help="Additional context files (CSVs, Markdown)")
     p.add_argument("--output", type=Path, default=None,
                    help="Output path (default: <results>/AI_ANALYSIS.md)")
-    return p.parse_args()
+    return p.parse_args(argv)
 
 
 def main():
