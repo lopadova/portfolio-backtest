@@ -13,10 +13,14 @@ import pytest
 
 from src.dashboard_helpers import (
     build_portfolio_from_ui_state,
+    common_history_years,
     compute_effective_start,
+    fire_config_from_ui_state,
     format_asset_start_date,
 )
 from src.data_catalog import AssetInfo
+from src.data_loader import _generate_synthetic_bundle
+from src.fire import FireConfig
 from src.portfolio_model import AssetAllocation, Portfolio
 
 
@@ -236,3 +240,191 @@ class TestFormatAssetStartDate:
                 start_date=pd.Timestamp(year=2020, month=month, day=1),
             )
             assert format_asset_start_date(info) == f"{abbr} 2020"
+
+
+# ---------------------- common_history_years (PR5) --------------------------
+
+
+class TestCommonHistoryYears:
+    """Post-Copilot-review (PR #19): this helper now computes from the
+    ACTUAL bundle (``monthly_returns_eur`` index + per-column
+    first_valid_index), not from the catalog's ``AssetInfo.start_date``.
+    This guarantees the gate agrees with what ``run_rolling_backtest`` sees.
+    """
+
+    def _synthetic_bundle(self):
+        """Synthetic bundle: monthly index spans 2005-01-31 → 2024-12-31
+        (~20 years) with every sleeve fully populated (no NaN prefix)."""
+        return _generate_synthetic_bundle()
+
+    def test_full_synthetic_bundle_yields_20_years(self):
+        """Every asset is populated from the first bundle row → common
+        history is the full bundle span."""
+        bundle = self._synthetic_bundle()
+        p = Portfolio(name="P", assets=[AssetAllocation("gold", 1.0)])
+        years = common_history_years(bundle, p)
+        # Synthetic bundle is 2005-01-31 through 2024-12-31 → ~20 years
+        assert 19.5 <= years <= 20.5
+
+    def test_multiple_assets_full_history(self):
+        bundle = self._synthetic_bundle()
+        p = Portfolio(
+            name="P",
+            assets=[
+                AssetAllocation("gold", 0.4),
+                AssetAllocation("quality", 0.4),
+                AssetAllocation("momentum", 0.2),
+            ],
+        )
+        years = common_history_years(bundle, p)
+        assert 19.5 <= years <= 20.5
+
+    def test_cash_does_not_constrain(self):
+        """Adding cash must not shorten the common history — cash is always
+        available."""
+        bundle = self._synthetic_bundle()
+        p_with_cash = Portfolio(
+            name="With cash",
+            assets=[AssetAllocation("gold", 0.5), AssetAllocation("cash", 0.5)],
+        )
+        p_without_cash = Portfolio(
+            name="No cash",
+            assets=[AssetAllocation("gold", 1.0)],
+        )
+        assert common_history_years(bundle, p_with_cash) == pytest.approx(
+            common_history_years(bundle, p_without_cash),
+        )
+
+    def test_asset_missing_from_bundle_columns_returns_zero(self):
+        """If a portfolio asset key isn't in the bundle columns,
+        simulate_portfolio_generic would silently drop it — so the
+        walk-forward gate must hard-fail to 0 rather than pretend the
+        portfolio has coverage it doesn't."""
+        bundle = self._synthetic_bundle()
+        p = Portfolio(
+            name="P",
+            assets=[
+                AssetAllocation("gold", 0.5),
+                AssetAllocation("not_in_bundle", 0.5),
+            ],
+        )
+        assert common_history_years(bundle, p) == 0.0
+
+    def test_nan_prefix_shortens_common_history(self):
+        """Asset with NaN values at the start of the bundle (e.g. BTC
+        before activation) constrains common history to the first valid
+        date across all assets."""
+        bundle = self._synthetic_bundle()
+        # Forcibly NaN the first 60 months (5 years) of gold in a COPY
+        # so we don't mutate the shared synthetic bundle fixture.
+        import copy as _copy
+        bundle_patched = _copy.deepcopy(bundle)
+        bundle_patched.monthly_returns_eur.iloc[:60, bundle.monthly_returns_eur.columns.get_loc("gold")] = float("nan")
+
+        p = Portfolio(
+            name="P",
+            assets=[AssetAllocation("gold", 0.5), AssetAllocation("cash", 0.5)],
+        )
+        years = common_history_years(bundle_patched, p)
+        # Bundle is ~20 years; 5 years of leading NaN → ~15 years of common history.
+        assert 14.5 <= years <= 15.5
+
+    def test_sliced_bundle_reduces_history(self):
+        """Slicing the bundle to a narrower range must reduce common history
+        proportionally — proves the helper reads from the actual bundle index,
+        not from catalog metadata."""
+        bundle = self._synthetic_bundle()
+        sliced = bundle.slice(pd.Timestamp("2015-01-31"), pd.Timestamp("2024-12-31"))
+        p = Portfolio(name="P", assets=[AssetAllocation("gold", 1.0)])
+        years = common_history_years(sliced, p)
+        assert 9.5 <= years <= 10.5
+
+    def test_returns_zero_for_empty_bundle(self):
+        """Edge case: bundle has no rows. The helper must not crash."""
+        bundle = self._synthetic_bundle()
+        import copy as _copy
+        empty = _copy.deepcopy(bundle)
+        empty.monthly_returns_eur = empty.monthly_returns_eur.iloc[0:0]
+        p = Portfolio(name="P", assets=[AssetAllocation("gold", 1.0)])
+        assert common_history_years(empty, p) == 0.0
+
+
+# ---------------------- fire_config_from_ui_state (PR5) ---------------------
+
+
+def _valid_fire_state() -> dict:
+    return {
+        "fire_current_age": 45,
+        "fire_sex": "M",
+        "fire_fixed_end_age": None,
+        "fire_initial_capital": 100_000.0,
+        "fire_contribution_amount": 1_000.0,
+        "fire_contribution_frequency": "month",
+        "fire_fire_age": 60,
+        "fire_monthly_spending": 2_500.0,
+        "fire_inflation_rate": 0.02,
+        "fire_pension_enabled": True,
+        "fire_pension_monthly_amount": 1_500.0,
+        "fire_pension_start_age": 67,
+        "fire_pension_revaluation": 0.75,
+        "fire_tax_on_withdrawals": True,
+        "fire_tax_rate": 0.26,
+        "fire_n_simulations": 1000,
+        "fire_block_size": 3,
+        "fire_seed": 42,
+    }
+
+
+class TestFireConfigFromUiState:
+    def test_builds_valid_config(self):
+        cfg = fire_config_from_ui_state(_valid_fire_state())
+        assert isinstance(cfg, FireConfig)
+        assert cfg.current_age == 45
+        assert cfg.fire_age == 60
+        assert cfg.pension_enabled is True
+        assert cfg.pension_monthly_amount == 1_500.0
+
+    def test_fire_age_must_exceed_current_age(self):
+        state = _valid_fire_state()
+        state["fire_fire_age"] = state["fire_current_age"]   # invalid: equal
+        with pytest.raises(ValueError, match="strictly greater than current age"):
+            fire_config_from_ui_state(state)
+
+    def test_negative_spending_rejected(self):
+        state = _valid_fire_state()
+        state["fire_monthly_spending"] = -100
+        with pytest.raises(ValueError, match="Monthly spending"):
+            fire_config_from_ui_state(state)
+
+    def test_inflation_out_of_range(self):
+        state = _valid_fire_state()
+        state["fire_inflation_rate"] = 0.5  # 50% — out of [0, 0.25]
+        with pytest.raises(ValueError, match="Inflation rate"):
+            fire_config_from_ui_state(state)
+
+    def test_fixed_end_age_none_treated_as_unset(self):
+        state = _valid_fire_state()
+        state["fire_fixed_end_age"] = None
+        cfg = fire_config_from_ui_state(state)
+        assert cfg.fixed_end_age is None
+
+    def test_fixed_end_age_zero_treated_as_unset(self):
+        """UI number_input often uses 0 as 'no value set'."""
+        state = _valid_fire_state()
+        state["fire_fixed_end_age"] = 0
+        cfg = fire_config_from_ui_state(state)
+        assert cfg.fixed_end_age is None
+
+    def test_pension_disabled_still_builds(self):
+        state = _valid_fire_state()
+        state["fire_pension_enabled"] = False
+        cfg = fire_config_from_ui_state(state)
+        assert cfg.pension_enabled is False
+        # Pension amount still in the dataclass (the simulator ignores it
+        # when pension_enabled=False), just preserves what the UI had.
+
+    def test_tax_rate_bounds(self):
+        state = _valid_fire_state()
+        state["fire_tax_rate"] = 1.5
+        with pytest.raises(ValueError, match="Tax rate"):
+            fire_config_from_ui_state(state)

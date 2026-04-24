@@ -132,6 +132,59 @@ A test that says "the engine raises X" when the engine actually silently drops i
 
 ---
 
+## Theme 12 — Metadata vs. ground truth (prefer ground truth)
+
+When the same fact is encoded in both a **metadata catalog** (e.g. `AssetInfo.start_date` shipped in `data/catalog.toml`) and in the **live data** (e.g. `bundle.monthly_returns_eur[key].first_valid_index()`), derived computations must read from the live data. Metadata is easy to read, easy to cache, easy to be out-of-date or missing.
+
+- PR #19 (PR5 — walk-forward gating). `common_history_years(bundle, portfolio, catalog)` used `AssetInfo.start_date` to compute the gate. Three concrete bugs this introduced:
+  - **Synthetic mode**: catalog wasn't `augment_with_raw_dates`-ed so every `start_date` was `None` → gate returned 0.0 → walk-forward was ALWAYS skipped even when the synthetic bundle had 20 years.
+  - **Catalog predates bundle**: if `AssetInfo.start_date=2003-01` but the bundle was sliced to `[2015-01, 2024-12]`, the gate overestimated available years and the UI called `run_rolling_backtest`, which then raised `ValueError: Data range shorter than the window` — a red Streamlit traceback.
+  - **Sliced bundle ignored**: the user could narrow the date range; the gate didn't notice. **Fix**: rewrote the helper to use `bundle.monthly_returns_eur.index[-1]` and per-column `first_valid_index()`. Dropped the `catalog` arg from the signature. The gate now agrees with the engine exactly.
+
+**Candidate rule**: for any predicate / metric used to gate a downstream engine call, compute the predicate from the SAME data the engine will read, not from a separate metadata source that can drift. Rule of thumb: "would this still be correct if the catalog were empty? if yes, good; if not, rewrite."
+
+---
+
+## Theme 13 — UI help text must match runtime behavior
+
+Help / tooltip strings written "aspirationally" instead of descriptively drift from the actual code and either mislead users or become untrue when the code changes.
+
+- PR #19 (PR5 — walk-forward tooltip). The checkbox help said "Requires ≥ 20 years of common history", but the gating code compared `available_years >= window_years` with `window_years` defaulting to 10. Users with a 10-year window would never see the "insufficient history" branch even when they had only 9 years of common data for that window size. **Fix**: reworded the help to "Requires common history across all portfolio assets at least as long as the selected window size (in years)", with an editorial note that ≥ 20 years is generally recommended for stable percentile tail estimates.
+
+**Candidate rule**: help strings describe what the code does, not what you'd like the code to do. When reviewing a PR, grep for hardcoded numbers in help=/tooltip= strings and verify each one is enforced somewhere downstream.
+
+---
+
+## Theme 14 — Post-run renders must use snapshotted inputs, not live session_state
+
+Streamlit reruns the whole script on every widget change. A post-run render that reads `st.session_state[...]` for a parameter that was used during the run itself will show mislabeled results when the user tweaks the slider after the run completed.
+
+- PR #19 (PR5 — walk-forward tab). `plot_rolling_window_results(... step_months=st.session_state["walkforward_step_months"])` used the live session value. If the user ran with step=12 then changed the slider to step=1, the chart would re-render with the wrong title ("step 1 month(s)") even though the underlying `wf_df` was computed with step=12. **Fix**: snapshot `step_months` into the `walkforward_result` tuple at run-time and read from the snapshot in the tab.
+
+**Candidate rule**: anything you cache in `st.session_state["last_run"]` (or equivalent) must include the parameters that were used to produce it. Rendering code reads from the snapshot, never from live widget state.
+
+---
+
+## Theme 15 — Leave no user-facing crash as a bare traceback
+
+Even with a gate that "should" prevent bad inputs, the handful of pathological combinations that slip through must produce a clean message, not a red Streamlit exception box.
+
+- PR #19 (PR5 — walk-forward). Even with the bundle-driven gate from Theme 12, an edge case (pure NaN tail on the bundle + a boundary window size) could still trip `run_rolling_backtest`'s internal validation. **Fix**: wrapped the call in a belt-and-suspenders `try/except ValueError` that converts the exception into a friendly `walkforward_skipped_reason` — same message shape as the primary gate.
+
+**Candidate rule**: external-facing engine calls inside a UI path must be guarded by the narrowest reasonable exception handler that converts known error shapes into user-friendly status messages. Reserve uncaught exceptions for true bugs.
+
+---
+
+## Theme 16 — Hardcoded product/preset labels leak through when names become data
+
+When a preset's name used to be a hardcoded product name but is now user-configurable, every chart legend / annotation / hover card that built a string around the old hardcoded name needs to switch to the runtime `label` field.
+
+- PR #19 (PR5 — Efficient Frontier). `plot_efficient_frontier` and `plot_efficient_frontier_interactive` hardcoded `"Four Umbrellas"` in the legend label, annotation, and hover card — even though PR3 made `run_efficient_frontier(..., portfolio=...)` return a `FrontierPoint` whose `.label` already carries the correct runtime name ("Toy", "My strategy", etc.). The Streamlit integration (PR5) therefore mislabeled every custom-portfolio frontier as "Four Umbrellas". **Fix**: both plot functions now derive the short legend label and the annotation text from `ref_point.label` (stripping any parenthetical suffix for compactness); the hover card uses the full label.
+
+**Candidate rule**: when a function accepts a dataclass whose fields (name, label, description) are surfaced in user-facing output, search the function body for string literals matching historic/default values and replace with references to the dataclass fields. This is a "names become data" refactor that must happen simultaneously with the runtime plumbing.
+
+---
+
 ## Distillation targets (build during PR-final)
 
 - `CLAUDE.md` addendum "Before every PR" with themes 1, 2, 3, 5, 7, 8, 9, 10 as imperative bullets.
