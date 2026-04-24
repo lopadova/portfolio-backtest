@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tomllib
 from pathlib import Path
 from typing import Dict, List
 
@@ -35,6 +36,7 @@ import numpy as np
 import pandas as pd
 
 from src.data_loader import load_data, DataBundle
+from src.portfolio_model import Portfolio, list_available_presets
 from src.rebalance import simulate_portfolio, simulate_benchmark
 from src.options_overlay import simulate_options_overlay
 from src.metrics import (
@@ -92,29 +94,62 @@ def parse_args(argv=None):
     p.add_argument("--efficient-frontier", action="store_true", help="Compute and plot the efficient frontier")
     p.add_argument("--n-random", type=int, default=50_000, help="Random portfolios for frontier cloud (default: 50k)")
 
+    # Portfolio selection (PR2)
+    p.add_argument("--portfolio", type=str, default=None,
+        help="Portfolio to run: NAME (resolves to portfolios/<name>.toml), "
+             "PATH (ends in .toml or contains a / or \\), or inline JSON starting with '{'. "
+             "When omitted, the CLI defaults to the 'four_umbrellas' preset "
+             "(argparse default is None; defaulting is applied by "
+             "_resolve_portfolio_or_exit()).")
+    p.add_argument("--list-portfolios", action="store_true",
+        help="List available preset portfolios (portfolios/*.toml) and exit.")
+
     return p.parse_args(argv)
 
 
-def run_backtest(bundle: DataBundle, enable_options: bool, start_nav: float, args) -> Dict[str, pd.Series]:
-    """Run the main portfolio + benchmarks. Returns dict of name -> monthly return series."""
+def run_backtest(
+    bundle: DataBundle,
+    enable_options: bool,
+    start_nav: float,
+    args,
+    portfolio: Portfolio | None = None,
+) -> Dict[str, pd.Series]:
+    """Run the main portfolio + benchmarks. Returns dict of name -> monthly return series.
+
+    If ``portfolio`` is None the engine falls back to the legacy Four Umbrellas
+    preset (built from module globals) — preserves pre-PR2 behavior exactly.
+    Otherwise the generic engine uses the provided Portfolio and the
+    ``returns_dict`` keys mirror the portfolio's display name."""
     print(f"\n{'=' * 70}")
     print(f"Running backtest: {bundle.monthly_returns_eur.index[0].date()} to {bundle.monthly_returns_eur.index[-1].date()}")
     print(f"Starting NAV: €{start_nav:,.0f}")
     print(f"Options overlay: {'ENABLED' if enable_options else 'DISABLED'}")
+    if portfolio is not None:
+        print(f"Portfolio:       {portfolio.name} ({len(portfolio.assets)} assets)")
     print(f"{'=' * 70}\n")
 
     returns_dict: Dict[str, pd.Series] = {}
 
-    # --- Four Umbrellas (no options) ---
-    print("Simulating Four Umbrellas (no options overlay) ...")
+    # Determine the label used in returns_dict / charts / reports.
+    # For the legacy Four Umbrellas preset the label is kept identical to
+    # pre-PR2 output so numeric diffs against main stay zero; for any other
+    # portfolio the Portfolio.name is used as-is.
+    portfolio_label = (
+        portfolio.name if portfolio is not None and portfolio.name != "Four Umbrellas"
+        else "Four Umbrellas"
+    )
+
+    # --- No-options run ---
+    print(f"Simulating {portfolio_label} (no options overlay) ...")
     base_returns = simulate_portfolio(
         bundle.monthly_returns_eur,
         bundle.btc_activation_date,
         apply_ter=True,
+        portfolio=portfolio,
     )
-    returns_dict["Four Umbrellas (no options)"] = base_returns
+    returns_dict[f"{portfolio_label} (no options)"] = base_returns
 
-    # --- Four Umbrellas (with options) ---
+    # --- With options overlay ---
     if enable_options:
         print("Simulating options overlay ...")
         # Build NAV series from the no-options portfolio as the reference for option sizing
@@ -129,7 +164,7 @@ def run_backtest(bundle: DataBundle, enable_options: bool, start_nav: float, arg
         # Align and combine
         overlay_aligned = overlay_returns.reindex(base_returns.index).fillna(0.0)
         umbrellas_returns = base_returns + overlay_aligned
-        returns_dict["Four Umbrellas"] = umbrellas_returns
+        returns_dict[portfolio_label] = umbrellas_returns
 
     # --- Benchmarks ---
     for bench_name, bench_weights in BENCHMARKS.items():
@@ -323,8 +358,102 @@ def run_sensitivity(args, bundle=None):
     print(tabulate(display_df.drop(columns=["param_name"]), headers="keys", tablefmt="github"))
 
 
+def _print_preset_listing() -> None:
+    """Implementation of ``--list-portfolios``: enumerate presets and exit."""
+    entries = list_available_presets()
+    if not entries:
+        print("No presets found in portfolios/ directory.")
+        return
+    print(f"{'name':<30} {'assets':>6}  description")
+    print("-" * 70)
+    for e in entries:
+        print(f"{e['name']:<30} {e['n_assets']:>6}  {e['notes'] or e['display_name']}")
+
+
+_DEFAULT_PORTFOLIO_NAME = "four_umbrellas"
+
+
+def _resolve_portfolio_or_exit(spec: str | None) -> Portfolio:
+    """Resolve the ``--portfolio`` CLI spec to a Portfolio, or exit(2) with a
+    helpful error on failure. Default is the 'four_umbrellas' preset.
+
+    Catches every expected parser/validation error: ``FileNotFoundError``
+    (bad path / missing preset), ``ValueError`` (malformed JSON, bad
+    weights, missing required fields), ``tomllib.TOMLDecodeError``
+    (corrupt preset file). Anything else is a genuine bug and bubbles up.
+    """
+    spec = spec if spec is not None else _DEFAULT_PORTFOLIO_NAME
+    try:
+        return Portfolio.resolve(spec)
+    except (FileNotFoundError, ValueError, tomllib.TOMLDecodeError) as e:
+        print(f"ERROR loading portfolio spec: {e}", file=sys.stderr)
+        sys.exit(2)
+
+
+def _is_default_portfolio_spec(spec: str | None) -> bool:
+    """True iff the CLI spec selects the shipped default preset. Uses the
+    spec string (argparse input), not ``portfolio.name``, because display
+    names are user-controlled: a malicious or careless custom preset could
+    set ``name = "Four Umbrellas"`` and bypass a name-based check."""
+    if spec is None:
+        return True
+    s = spec.strip()
+    # Bare name match
+    if s == _DEFAULT_PORTFOLIO_NAME:
+        return True
+    # Explicit path to the shipped preset (relative or absolute)
+    if s.endswith(".toml"):
+        try:
+            resolved = Path(s).resolve()
+        except OSError:
+            return False
+        default_path = (
+            Path(__file__).resolve().parent
+            / "portfolios"
+            / f"{_DEFAULT_PORTFOLIO_NAME}.toml"
+        )
+        return resolved == default_path
+    return False
+
+
+def _warn_if_custom_portfolio_with_advanced_analysis(args) -> None:
+    """PR2 coexistence warning. ``--sensitivity`` / ``--rolling-window`` /
+    ``--efficient-frontier`` still read from the src.portfolio globals in
+    this phase (PR3 wires them to accept a Portfolio). If the user combines
+    a custom portfolio with one of these flags, tell them clearly that the
+    advanced analysis will reflect the DEFAULT preset, not their custom
+    portfolio, so they're not silently misled.
+
+    Detection is based on the CLI spec (``args.portfolio``), not on the
+    Portfolio's display name — see ``_is_default_portfolio_spec``.
+    """
+    spec = getattr(args, "portfolio", None)
+    is_custom = not _is_default_portfolio_spec(spec)
+    advanced_requested = any([
+        args.sensitivity, args.rolling_window, args.efficient_frontier,
+    ])
+    if is_custom and advanced_requested:
+        print(
+            "\nWARNING: --sensitivity / --rolling-window / --efficient-frontier "
+            f"currently use the Four Umbrellas preset, not your custom portfolio "
+            f"({spec!r}). This limitation will be lifted in PR3. "
+            "The main backtest (no-options / options overlay / benchmarks) "
+            "DOES use your custom portfolio.\n",
+            file=sys.stderr,
+        )
+
+
 def main():
     args = parse_args()
+
+    # Short-circuit: --list-portfolios just prints and exits.
+    if args.list_portfolios:
+        _print_preset_listing()
+        return
+
+    # Resolve the requested portfolio (default: four_umbrellas preset).
+    portfolio = _resolve_portfolio_or_exit(args.portfolio)
+    _warn_if_custom_portfolio_with_advanced_analysis(args)
 
     # Load data
     print(f"Loading data (synthetic={args.synthetic}) ...")
@@ -402,8 +531,15 @@ def main():
         return
 
     # Main backtest
-    enable_options = not args.no_options
-    returns_dict = run_backtest(bundle, enable_options, args.nav, args)
+    # Honor the portfolio's own options_overlay flag unless the user explicitly
+    # forced it off with --no-options (which overrides everything for backward
+    # compat). A preset with options_overlay=false can still opt back in only
+    # by editing the preset file, never via CLI — the CLI only has the "off"
+    # switch (--no-options).
+    enable_options = (not args.no_options) and portfolio.options_overlay
+    returns_dict = run_backtest(
+        bundle, enable_options, args.nav, args, portfolio=portfolio
+    )
 
     # Summary
     stats_df, stats_list = print_summary_table(returns_dict)

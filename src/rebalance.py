@@ -5,15 +5,18 @@ rebalancing back to target weights, including transaction costs.
 
 from __future__ import annotations
 
-from typing import Dict, List
+import re
+from dataclasses import replace
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 
 from .portfolio import (
     WEIGHTS, EQUITY, CRYPTO, BONDS, EM_SATELLITES, PENSION,
-    TER_ANNUAL, SYMBOL_MAP, REBALANCE,
+    TER_ANNUAL, REBALANCE,
 )
+from .portfolio_model import AssetAllocation, Portfolio
 
 
 def build_target_weights() -> Dict[str, float]:
@@ -42,99 +45,149 @@ def build_target_weights() -> Dict[str, float]:
     return target
 
 
-def simulate_portfolio(
+_LEGACY_SERIES_NAME = "four_umbrellas"
+
+
+def _slugify(name: str) -> str:
+    """Lowercase, replace spaces with underscores, strip non-identifier chars.
+    Used for the returned ``pd.Series.name`` in the generic engine."""
+    s = name.strip().lower().replace(" ", "_")
+    return re.sub(r"[^a-z0-9_]+", "", s) or "portfolio"
+
+
+def build_portfolio_from_globals() -> Portfolio:
+    """Construct a Portfolio from the legacy src.portfolio module globals
+    (WEIGHTS / EQUITY / CRYPTO / BONDS / EM_SATELLITES / PENSION / REBALANCE /
+    OPTIONS). Used by the simulate_portfolio() shim so pre-PR2 callers keep
+    getting bit-identical results without a code change.
+
+    When the globals are retired (PR3+), this function becomes the last
+    place that reads them and can be deleted together with the globals.
+    """
+    from .portfolio import OPTIONS  # local import avoids a circular ref at module load
+
+    target = build_target_weights()  # dict sleeve -> weight, excluding cash
+    assets = [AssetAllocation(key=k, weight=float(v)) for k, v in target.items()]
+    assets.append(AssetAllocation(key="cash", weight=float(WEIGHTS["cash"])))
+    return Portfolio(
+        name="Four Umbrellas",
+        assets=assets,
+        options_overlay=bool(OPTIONS.enabled),
+        rebalance_months=tuple(REBALANCE.months),
+        transaction_cost_bps=float(REBALANCE.transaction_cost_bps),
+        notes="Default preset, built from the src.portfolio legacy globals.",
+    )
+
+
+def simulate_portfolio_generic(
     monthly_returns: pd.DataFrame,
-    btc_activation_date: pd.Timestamp,
-    apply_ter: bool = True,
-    rebalance_months: tuple = None,
-    transaction_cost_bps: float = None,
+    portfolio: Portfolio,
+    ter_by_key: Optional[Dict[str, float]] = None,
+    btc_activation_date: Optional[pd.Timestamp] = None,
     verbose: bool = False,
 ) -> pd.Series:
     """
-    Run the rebalancing simulation.
+    Run the rebalancing simulation for an arbitrary :class:`Portfolio`.
 
-    monthly_returns: DataFrame indexed by EOM date, columns = sleeve keys
-                     matching build_target_weights()
-    btc_activation_date: BTC weight is 0 before this date, target weight after
+    Parameters
+    ----------
+    monthly_returns :
+        DataFrame indexed by EOM date; columns are asset keys. Any asset
+        present in ``portfolio`` but missing from ``monthly_returns.columns``
+        is silently dropped (same behavior as the legacy engine).
+    portfolio :
+        The Portfolio to simulate. Must pass :meth:`Portfolio.validate`.
+    ter_by_key :
+        Per-asset annual TER (decimal). Any asset not in the dict is assumed
+        zero TER. Pass ``None`` or an empty dict to disable TER entirely.
+    btc_activation_date :
+        Date after which the asset whose key is ``"btc"`` starts receiving
+        its target weight. Before that date, its weight is parked in cash.
+        Pass ``None`` if the portfolio has no BTC or no activation logic.
 
-    Returns: monthly portfolio return series (decimals)
+    Returns
+    -------
+    pd.Series of monthly portfolio returns, named after the portfolio slug.
     """
-    if rebalance_months is None:
-        rebalance_months = REBALANCE.months
-    if transaction_cost_bps is None:
-        transaction_cost_bps = REBALANCE.transaction_cost_bps
+    portfolio.validate()
+    rebalance_months = tuple(portfolio.rebalance_months)
+    transaction_cost_bps = float(portfolio.transaction_cost_bps)
 
-    target_weights = build_target_weights()
+    # Flat non-cash target (matches legacy build_target_weights shape)
+    target_weights = portfolio.to_legacy_target_weights()
+    cash_target_weight = portfolio.cash_weight()
 
-    # Only keep sleeves for which we have return data
-    available_sleeves = [s for s in target_weights if s in monthly_returns.columns]
+    # Only keep assets for which we have return data
+    available = [k for k in target_weights if k in monthly_returns.columns]
 
-    # Start weights = targets (with BTC handled specially)
-    current_weights = pd.Series(0.0, index=available_sleeves)
-    cash_weight = WEIGHTS["cash"]
+    # Start weights = targets
+    current_weights = pd.Series(0.0, index=available)
+    cash_weight = cash_target_weight
+    for k in available:
+        current_weights[k] = target_weights[k]
 
-    for s in available_sleeves:
-        current_weights[s] = target_weights[s]
-    # If BTC not yet active at start, shift its weight to cash
-    if "btc" in available_sleeves and monthly_returns.index[0] < btc_activation_date:
+    # BTC not yet active → park weight in cash (same convention as legacy)
+    if (
+        "btc" in available
+        and btc_activation_date is not None
+        and monthly_returns.index[0] < btc_activation_date
+    ):
         cash_weight += current_weights["btc"]
         current_weights["btc"] = 0.0
 
-    # Monthly TER deduction (per sleeve)
-    monthly_ter = pd.Series({
-        s: TER_ANNUAL.get(s, 0.0) / 12.0 for s in available_sleeves
-    })
+    # Monthly TER per asset
+    ter = ter_by_key or {}
+    monthly_ter = pd.Series({k: ter.get(k, 0.0) / 12.0 for k in available})
 
     portfolio_returns: List[float] = []
     dates: List[pd.Timestamp] = []
 
-    for i, date in enumerate(monthly_returns.index):
-        # Get this month's sleeve returns
-        month_returns = monthly_returns.loc[date, available_sleeves].fillna(0.0)
-
-        # Apply TER
-        if apply_ter:
-            month_returns = month_returns - monthly_ter
+    for date in monthly_returns.index:
+        month_returns = monthly_returns.loc[date, available].fillna(0.0)
+        # Applying TER unconditionally: callers that want to skip TER pass
+        # ter_by_key=None or {}, which makes monthly_ter a series of zeros.
+        month_returns = month_returns - monthly_ter
 
         # BTC activation
-        if "btc" in available_sleeves and date >= btc_activation_date and current_weights["btc"] == 0.0:
-            # First month BTC activates — move btc target weight from cash to btc
-            # (simulates buying BTC)
+        if (
+            "btc" in available
+            and btc_activation_date is not None
+            and date >= btc_activation_date
+            and current_weights["btc"] == 0.0
+        ):
             btc_target = target_weights["btc"]
             current_weights["btc"] = btc_target
             cash_weight -= btc_target
             if verbose:
                 print(f"BTC activated on {date.date()}, weight {btc_target:.4f}")
 
-        # Portfolio return this month = sum of weight * return + cash * 0 (cash earns nothing in base model)
         portfolio_return = float((current_weights * month_returns).sum())
-        # Cash earns zero in base model (conservative)
-        # Could add a cash yield here: portfolio_return += cash_weight * monthly_cash_rate
+        # Cash earns 0% in conservative base model.
 
-        # Update weights post-return (drift)
+        # Drift
         growth_factors = 1.0 + month_returns
         new_weights = current_weights * growth_factors
-        new_cash_weight = cash_weight  # cash unchanged
+        new_cash_weight = cash_weight
         total = new_weights.sum() + new_cash_weight
-        # Normalize (should be ~ 1 + portfolio_return)
-        new_weights = new_weights / total
-        new_cash_weight = new_cash_weight / total
-        current_weights = new_weights
-        cash_weight = new_cash_weight
+        current_weights = new_weights / total
+        cash_weight = new_cash_weight / total
 
-        # Rebalance if this month is a rebalance month
+        # Rebalance
         if date.month in rebalance_months:
-            # Target weights (cash goes to target too)
-            target_vec = pd.Series(target_weights).reindex(available_sleeves).fillna(0.0)
-            if "btc" in available_sleeves and date < btc_activation_date:
+            target_vec = pd.Series(target_weights).reindex(available).fillna(0.0)
+            if (
+                "btc" in available
+                and btc_activation_date is not None
+                and date < btc_activation_date
+            ):
                 target_vec["btc"] = 0.0
-                # Extra weight goes to cash
-                target_cash = WEIGHTS["cash"] + target_weights["btc"]
+                target_cash = cash_target_weight + target_weights["btc"]
             else:
-                target_cash = WEIGHTS["cash"]
+                target_cash = cash_target_weight
 
-            # Compute trade magnitude (sum of absolute deviations / 2)
-            deviation = (current_weights - target_vec).abs().sum() + abs(cash_weight - target_cash)
+            deviation = (current_weights - target_vec).abs().sum() + abs(
+                cash_weight - target_cash
+            )
             transaction_cost = (transaction_cost_bps / 10000.0) * (deviation / 2.0)
             portfolio_return -= transaction_cost
 
@@ -144,7 +197,58 @@ def simulate_portfolio(
         portfolio_returns.append(portfolio_return)
         dates.append(date)
 
-    return pd.Series(portfolio_returns, index=pd.Index(dates), name="four_umbrellas")
+    return pd.Series(
+        portfolio_returns, index=pd.Index(dates), name=_slugify(portfolio.name)
+    )
+
+
+def simulate_portfolio(
+    monthly_returns: pd.DataFrame,
+    btc_activation_date: pd.Timestamp,
+    apply_ter: bool = True,
+    rebalance_months: tuple = None,
+    transaction_cost_bps: float = None,
+    verbose: bool = False,
+    *,
+    portfolio: Optional[Portfolio] = None,
+) -> pd.Series:
+    """
+    Backward-compatible shim around :func:`simulate_portfolio_generic`.
+
+    With no ``portfolio`` argument, it reconstructs one from the legacy
+    module globals (Four Umbrellas preset) and runs the generic engine.
+    The returned series is named ``"four_umbrellas"`` to match pre-PR2
+    behavior. Passing an explicit ``portfolio`` uses its name slug instead.
+    ``rebalance_months`` / ``transaction_cost_bps`` kwargs override the
+    portfolio's own settings (applied to a copy — no mutation).
+    """
+    if portfolio is None:
+        portfolio = build_portfolio_from_globals()
+        preserve_legacy_name = True
+    else:
+        preserve_legacy_name = False
+
+    # Apply per-call overrides to a COPY so the caller's Portfolio isn't mutated.
+    overrides = {}
+    if rebalance_months is not None:
+        overrides["rebalance_months"] = tuple(rebalance_months)
+    if transaction_cost_bps is not None:
+        overrides["transaction_cost_bps"] = float(transaction_cost_bps)
+    if overrides:
+        portfolio = replace(portfolio, **overrides)
+
+    ter_by_key = dict(TER_ANNUAL) if apply_ter else {}
+
+    series = simulate_portfolio_generic(
+        monthly_returns,
+        portfolio,
+        ter_by_key=ter_by_key,
+        btc_activation_date=btc_activation_date,
+        verbose=verbose,
+    )
+    if preserve_legacy_name:
+        series.name = _LEGACY_SERIES_NAME
+    return series
 
 
 def simulate_benchmark(

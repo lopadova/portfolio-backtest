@@ -75,6 +75,7 @@ Jump to: [**Install**](#install) · [**CLI reference**](#cli) · [**GUI launch**
 - [What's new in v2.0 🚀](#whats-new)
 - [🌟 Why you'll actually enjoy using this](#why)
 - [📋 CLI reference — everything you can do from the terminal](#cli)
+- [🧰 Custom portfolios — `--portfolio` flag](#custom-portfolios)
 - [🖥️ Running the interactive dashboard locally](#dashboard-local)
 - [📸 Screenshots](#screenshots)
 - [🚀 Deploy the dashboard publicly](#deploy-public)
@@ -273,6 +274,62 @@ streamlit run streamlit_app.py
 See [Running the interactive dashboard locally](#running-the-interactive-dashboard-locally) for the tour.
 
 ---
+
+<a id="custom-portfolios"></a>
+## 🧰 Custom portfolios — `--portfolio` flag (PR2)
+
+Starting with PR2 the engine accepts **any portfolio composition** from the CLI, not just the hardcoded Four Umbrellas preset. The default is unchanged — `python backtest.py --synthetic` still runs the Four Umbrellas preset and produces byte-identical output.
+
+### How to pick a portfolio
+
+```bash
+# 1) No flag → default preset (Four Umbrellas). Zero diff from pre-PR2.
+python backtest.py --synthetic
+
+# 2) By NAME — resolves to portfolios/<name>.toml. Ship your own TOML
+#    in portfolios/my_strategy.toml and load it by name:
+python backtest.py --synthetic --portfolio my_strategy
+
+# 3) By PATH — any path ending in .toml or containing a /:
+python backtest.py --synthetic --portfolio portfolios/four_umbrellas.toml
+python backtest.py --synthetic --portfolio /absolute/path/to/some.toml
+
+# 4) Inline JSON — anything starting with '{':
+python backtest.py --synthetic --portfolio \
+  '{"name":"Toy","assets":[{"key":"gold","weight":0.5},{"key":"cash","weight":0.5}]}'
+
+# List every preset in portfolios/ and exit
+python backtest.py --list-portfolios
+```
+
+### Preset file format (TOML)
+
+A preset is a plain TOML file. Weights MUST sum to 1.0 ±0.002 — the loader rejects anything else with a clear error. The available asset keys come from [`data/catalog.toml`](./data/catalog.toml); add your own catalog entries to register new datasets.
+
+```toml
+# portfolios/my_strategy.toml
+name = "My defensive strategy"
+notes = "40/40/20 gold/equity/cash — example"
+options_overlay = false             # SPY/QQQ put-spread overlay (needs SPY+QQQ+VIX data)
+rebalance_months = [1, 7]           # January + July (semi-annual)
+transaction_cost_bps = 20.0
+
+[[assets]]
+key    = "gold"
+weight = 0.4
+
+[[assets]]
+key    = "quality"
+weight = 0.4
+
+[[assets]]
+key    = "cash"
+weight = 0.2
+```
+
+### Current limitation — advanced analyses
+
+`--sensitivity` / `--rolling-window` / `--efficient-frontier` still reflect the **default Four Umbrellas preset** in this phase (they read the legacy module globals). If you combine a custom `--portfolio` with any of those flags, the CLI prints a clear warning so you're not silently misled. The main backtest (no-options baseline + options overlay + benchmarks) DOES use your custom portfolio fully. Full decoupling of the advanced analyses is tracked in PR3.
 
 ---
 
