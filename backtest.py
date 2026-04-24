@@ -1,5 +1,5 @@
 """
-Main backtest entry point for the Four Umbrellas Portfolio.
+Main CLI entry point for the Portfolio Backtest Engine.
 
 Usage:
     python backtest.py                                       # default: 2005-2024
@@ -60,7 +60,7 @@ OUTPUT_DIR = Path(__file__).parent / "output"
 
 
 def parse_args(argv=None):
-    p = argparse.ArgumentParser(description="Four Umbrellas Portfolio — 20-year backtest")
+    p = argparse.ArgumentParser(description="Portfolio Backtest Engine — multi-asset 20-year backtest")
     p.add_argument("--start", type=str, default=DEFAULT_START, help=f"Start date YYYY-MM-DD (default: {DEFAULT_START})")
     p.add_argument("--end", type=str, default=DEFAULT_END, help=f"End date YYYY-MM-DD (default: {DEFAULT_END})")
     p.add_argument("--synthetic", action="store_true", help="Use synthetic data (plumbing check only; NOT real analysis)")

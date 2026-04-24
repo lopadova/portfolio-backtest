@@ -38,7 +38,7 @@ class TestReportGeneration:
         content = (tmp_output_dir / "REPORT.md").read_text(encoding="utf-8")
 
         for section in [
-            "# Four Umbrellas Portfolio — Backtest Report",
+            "# Portfolio Backtest Report",
             "## Run configuration",
             "## Summary statistics",
             "## Equity curve",

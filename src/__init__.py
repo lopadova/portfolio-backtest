@@ -1,3 +1,3 @@
-"""Four Umbrellas Portfolio backtest package."""
+"""Portfolio Backtest Engine."""
 
 __version__ = "1.0.0"

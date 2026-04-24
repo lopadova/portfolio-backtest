@@ -107,7 +107,7 @@ def generate_markdown_report(
     lines: List[str] = []
 
     # --- Header ---
-    lines.append("# Four Umbrellas Portfolio — Backtest Report")
+    lines.append("# Portfolio Backtest Report")
     lines.append("")
     lines.append(f"*Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
     lines.append("")

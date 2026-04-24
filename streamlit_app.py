@@ -1,5 +1,5 @@
 """
-Streamlit dashboard — interactive Four Umbrellas Portfolio backtest UI.
+Streamlit dashboard — interactive Portfolio Backtest Engine UI.
 
 Run locally:
     pip install -r requirements-dashboard.txt
@@ -47,8 +47,8 @@ from src.report import generate_markdown_report
 # Page config
 # ===========================================================================
 st.set_page_config(
-    page_title="Four Umbrellas Portfolio",
-    page_icon="☂",
+    page_title="Portfolio Backtest Engine",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -71,8 +71,8 @@ def load_data_cached(synthetic: bool):
 # ===========================================================================
 # Sidebar — Configuration
 # ===========================================================================
-st.sidebar.title("☂ Four Umbrellas Portfolio")
-st.sidebar.caption("Interactive backtest dashboard")
+st.sidebar.title("📊 Portfolio Backtest Engine")
+st.sidebar.caption("Interactive multi-asset backtest dashboard")
 
 data_mode = st.sidebar.radio(
     "Data source",
@@ -144,11 +144,12 @@ save_results = col_save.checkbox("💾 Save to output/", value=False,
 # ===========================================================================
 # Main area
 # ===========================================================================
-st.title("☂ Four Umbrellas Portfolio — Interactive Backtest")
+st.title("📊 Portfolio Backtest Engine — Interactive Backtest")
 st.markdown(
     """
-    > A growth-oriented global portfolio with **four layered defensive protections**:
-    > gold, defensive put-write, managed futures, options overlay.
+    > Multi-asset backtest engine. The default preset is **Four Umbrellas**, the
+    > defensive strategy from the companion Medium article; you can build any other
+    > portfolio from the available data.
     > [Read the article](https://medium.com/@padosoft) · [GitHub](https://github.com/padosoft/portfolio-backtest) ·
     > **Disclaimer**: educational use only, not investment advice.
     """

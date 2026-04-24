@@ -196,7 +196,7 @@ class OpenRouterAnalyzer(AiAnalyzer):
             raise RuntimeError("OPENROUTER_API_KEY environment variable not set")
         extra_headers = {
             "HTTP-Referer": "https://github.com/padosoft/portfolio-backtest",
-            "X-Title": "Four Umbrellas Portfolio Backtest",
+            "X-Title": "Portfolio Backtest Engine",
         }
         data = _openai_compatible_call(
             DEFAULT_ENDPOINTS["openrouter"], model, api_key, prompt, system_prompt,
@@ -315,7 +315,7 @@ def save_analysis(response: AiResponse, output_path: Path) -> None:
     """Write the AI response to a Markdown file with metadata header."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     header = [
-        "# AI Analysis — Four Umbrellas Portfolio Backtest",
+        "# AI Analysis — Portfolio Backtest Engine",
         "",
         f"- **Provider**: {response.provider}",
         f"- **Model**: {response.model}",

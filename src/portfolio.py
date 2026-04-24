@@ -1,5 +1,5 @@
 """
-Portfolio configuration — the Four Umbrellas Portfolio.
+Portfolio presets — includes the Four Umbrellas preset (default).
 
 All weights are on total NAV. The structure mirrors the article:
 
