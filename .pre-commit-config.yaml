@@ -1,0 +1,41 @@
+# Pre-commit configuration -- OPT-IN local hook setup that mirrors the
+# CI lint job in .github/workflows/tests.yml. Not installed by default.
+#
+# Install with:
+#     pip install pre-commit
+#     pre-commit install
+#
+# After install, every `git commit` runs the hooks below; failures block
+# the commit until you either fix the issue or run `git commit --no-verify`
+# to bypass (the CI job will still gate the PR).
+#
+# The hooks here are intentionally a SUBSET of CI -- nothing slow (no
+# pytest, no smoke runs). The goal is fast feedback at commit-time on
+# the same lint LESSONS-themed checks the CI runs on every PR.
+
+repos:
+  # Ruff: unused imports (F401). LESSONS Themes 2 + 19.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--select, F401]
+        # Files: same surface as the CI step. Excludes the .venv and
+        # .git automatically via pre-commit's default file selection.
+        files: ^(src/|tests/|backtest\.py|fire\.py|fetch_data\.py|analyze\.py|streamlit_app\.py)
+
+  # Local hook: ASCII-only check on print() in CLI modules. LESSONS Theme 18.
+  # Runs the same scripts/check_ascii_print.py the CI job uses.
+  - repo: local
+    hooks:
+      - id: check-ascii-print
+        name: ASCII-only print() in CLI modules
+        entry: python scripts/check_ascii_print.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        # We invoke the script with a fixed list of paths because the
+        # script handles directory traversal and the streamlit_app.py
+        # exclusion internally. Passing per-file would require duplicating
+        # that logic in the hook config.
+        args: [backtest.py, fire.py, fetch_data.py, analyze.py, src/]
