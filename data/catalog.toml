@@ -1,0 +1,249 @@
+# ==========================================================================
+# Portfolio Backtest Engine — Data Catalog
+# ==========================================================================
+#
+# Manifest of every dataset the engine can consume. Each entry maps a stable
+# KEY (used in portfolio compositions and in sleeve logic) to the CSV file
+# in data/raw/ and the semantic metadata needed to correctly interpret its
+# returns (currency, hedging, TER) and to display it to users.
+#
+# Start/end dates are NOT stored here — they are inferred at runtime from
+# data/raw/<filename>.csv by src/data_catalog.augment_with_raw_dates().
+#
+# To ADD a new dataset: register it here (one [assets.<key>] block) and drop
+# the CSV into data/raw/. No code changes required once the engine is fully
+# decoupled (PR3+). In PR2 some consumers still read SYMBOL_MAP / HEDGED /
+# TER_ANNUAL globals in src/portfolio.py; keep those in sync for now.
+#
+# Categories: equity | bond | commodity | crypto | fx | cash | alt
+# ==========================================================================
+
+
+# --- Portfolio sleeves (matches SYMBOL_MAP keys in src/portfolio.py) ------
+
+[assets.put_write]
+display_name = "CBOE S&P 500 PutWrite (monthly)"
+filename     = "cboe_put_index_monthly"
+category     = "equity"
+native_ccy   = "USD"
+is_hedged    = true
+ter          = 0.0029
+description  = "Defensive US put-write strategy, EUR-hedged sleeve"
+
+[assets.nasdaq_top30]
+display_name = "Nasdaq 100 TR (monthly, concentrated top-30 proxy)"
+filename     = "nasdaq100_tr_monthly"
+category     = "equity"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0020
+
+[assets.hc_us_hedged]
+display_name = "S&P 500 Healthcare TR (monthly, EUR-hedged)"
+filename     = "sp500_healthcare_tr_monthly"
+category     = "equity"
+native_ccy   = "USD"
+is_hedged    = true
+ter          = 0.0020
+
+[assets.hc_world]
+display_name = "MSCI World Healthcare (monthly)"
+filename     = "msci_world_healthcare_monthly"
+category     = "equity"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0025
+
+[assets.quality]
+display_name = "MSCI World Quality Factor (monthly)"
+filename     = "msci_world_quality_monthly"
+category     = "equity"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0035
+
+[assets.momentum]
+display_name = "MSCI World Momentum Factor (monthly)"
+filename     = "msci_world_momentum_monthly"
+category     = "equity"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0030
+
+[assets.ex_usa]
+display_name = "MSCI World ex-USA (monthly)"
+filename     = "msci_world_ex_usa_monthly"
+category     = "equity"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0015
+
+[assets.gold]
+display_name = "LBMA Gold PM (monthly)"
+filename     = "gold_lbma_monthly"
+category     = "commodity"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0012
+description  = "London Bullion Market Association — PM fix, USD/oz"
+
+[assets.btc]
+display_name = "Bitcoin (USD, daily resampled to monthly)"
+filename     = "btc_usd_daily"
+category     = "crypto"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0098
+aliases      = ["bitcoin"]
+
+[assets.crypto_basket]
+display_name = "Crypto basket (monthly)"
+filename     = "crypto_basket_monthly"
+category     = "crypto"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0250
+
+[assets.eur_gov_direct]
+display_name = "Euro Gov 1-3y direct (iBoxx proxy, monthly)"
+filename     = "iboxx_eurgov_1_3y_monthly"
+category     = "bond"
+native_ccy   = "EUR"
+is_hedged    = true
+ter          = 0.0000
+
+[assets.eur_gov_1_3y]
+display_name = "Euro Gov 1-3y (iBoxx, monthly)"
+filename     = "iboxx_eurgov_1_3y_monthly"
+category     = "bond"
+native_ccy   = "EUR"
+is_hedged    = true
+ter          = 0.0020
+
+[assets.eur_gov_7_10y]
+display_name = "Euro Gov 7-10y (iBoxx, monthly)"
+filename     = "iboxx_eurgov_7_10y_monthly"
+category     = "bond"
+native_ccy   = "EUR"
+is_hedged    = true
+ter          = 0.0020
+
+[assets.india]
+display_name = "FTSE India TR (monthly)"
+filename     = "india_ftse_monthly"
+category     = "equity"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0019
+
+[assets.china]
+display_name = "FTSE China TR (monthly)"
+filename     = "china_ftse_monthly"
+category     = "equity"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0019
+
+[assets.dbi]
+display_name = "SG CTA Index (monthly)"
+filename     = "sg_cta_index_monthly"
+category     = "alt"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0085
+description  = "Société Générale CTA index — managed-futures proxy"
+aliases      = ["managed_futures", "cta"]
+
+[assets.pension_bond]
+display_name = "Pension bond-like (iBoxx 7-10y proxy)"
+filename     = "iboxx_eurgov_7_10y_monthly"
+category     = "bond"
+native_ccy   = "EUR"
+is_hedged    = true
+ter          = 0.0050
+description  = "Proxy for the bond-like share of the Italian pension sleeve"
+
+[assets.pension_equity]
+display_name = "Pension equity-like (MSCI Europe proxy)"
+filename     = "msci_europe_monthly"
+category     = "equity"
+native_ccy   = "EUR"
+is_hedged    = true
+ter          = 0.0050
+description  = "Proxy for the equity share of the Italian pension sleeve"
+
+
+# --- Explicit cash sleeve -------------------------------------------------
+#
+# Cash is NOT a CSV asset. It's a zero-return residual handled specially by
+# the engine. We still register it in the catalog so UIs can enumerate it
+# alongside "real" assets and users can add it explicitly to a portfolio.
+
+[assets.cash]
+display_name = "Cash (zero-yield buffer)"
+filename     = "__cash__"
+category     = "cash"
+native_ccy   = "EUR"
+is_hedged    = true
+ter          = 0.0
+description  = "Residual cash sleeve; earns 0% in the conservative base model"
+
+
+# --- Benchmark-only series (referenced by BENCHMARKS in portfolio.py) -----
+
+[assets.msci_world_tr_monthly]
+display_name = "MSCI World Net TR (monthly, EUR)"
+filename     = "msci_world_tr_monthly"
+category     = "equity"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0020
+description  = "Reference benchmark component (e.g. 60/40, SWDA)"
+
+[assets.sp500_tr_monthly]
+display_name = "S&P 500 TR (monthly)"
+filename     = "sp500_tr_monthly"
+category     = "equity"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0003
+
+[assets.bloomberg_euro_agg_monthly]
+display_name = "Bloomberg Euro Aggregate TR (monthly)"
+filename     = "bloomberg_euro_agg_monthly"
+category     = "bond"
+native_ccy   = "EUR"
+is_hedged    = true
+ter          = 0.0020
+
+[assets.msci_emerging_tr_monthly]
+display_name = "MSCI Emerging Markets TR (monthly)"
+filename     = "msci_emerging_tr_monthly"
+category     = "equity"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0018
+
+[assets.sp600_scv_tr_monthly]
+display_name = "S&P 600 Small-Cap Value TR (monthly)"
+filename     = "sp600_scv_tr_monthly"
+category     = "equity"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0025
+
+[assets.ftse_nareit_tr_monthly]
+display_name = "FTSE NAREIT REITs TR (monthly)"
+filename     = "ftse_nareit_tr_monthly"
+category     = "equity"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0035
+
+[assets.us_tips_tr_monthly]
+display_name = "US TIPS TR (monthly, inflation-protected)"
+filename     = "us_tips_tr_monthly"
+category     = "bond"
+native_ccy   = "USD"
+is_hedged    = false
+ter          = 0.0019
