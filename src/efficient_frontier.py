@@ -236,16 +236,21 @@ def plot_efficient_frontier(
             fontweight="bold", fontsize=9,
         )
 
-    # Four Umbrellas reference
+    # Reference portfolio (Four Umbrellas for the default preset,
+    # the user's Portfolio when passed via run_efficient_frontier(portfolio=...)).
+    # The short label is derived from the FrontierPoint's own label field
+    # — previously hardcoded "Four Umbrellas", which mislabeled every
+    # custom-portfolio frontier run after PR3/PR5.
     if four_umbrellas_point is not None:
+        short_label = four_umbrellas_point.label.split(" (")[0]  # drop parenthetical suffix
         ax.scatter(
             four_umbrellas_point.volatility * 100, four_umbrellas_point.expected_return * 100,
             marker="o", s=220, color="#1f77b4",
             edgecolors="black", linewidth=1.5, zorder=5,
-            label=f"Four Umbrellas ({four_umbrellas_point.sharpe:.2f} Sharpe)",
+            label=f"{short_label} ({four_umbrellas_point.sharpe:.2f} Sharpe)",
         )
         ax.annotate(
-            "Four Umbrellas", (four_umbrellas_point.volatility * 100, four_umbrellas_point.expected_return * 100),
+            short_label, (four_umbrellas_point.volatility * 100, four_umbrellas_point.expected_return * 100),
             xytext=(10, -15), textcoords="offset points",
             fontweight="bold", fontsize=9,
         )
@@ -386,8 +391,14 @@ def plot_efficient_frontier_interactive(
             hoverinfo="text",
         ))
 
-    # --- Four Umbrellas reference ---
+    # --- Reference portfolio (Four Umbrellas for default preset, custom
+    # Portfolio.name when run_efficient_frontier was called with portfolio=...)
     if four_umbrellas_point is not None:
+        # The label shipped on the FrontierPoint may carry a parenthetical
+        # suffix (e.g. "Toy (liquid sleeves, normalized)"). Strip the suffix
+        # for the compact legend entry; keep the full label in the hover card.
+        full_label = four_umbrellas_point.label
+        short_label = full_label.split(" (")[0]
         fig.add_trace(go.Scatter(
             x=[four_umbrellas_point.volatility * 100],
             y=[four_umbrellas_point.expected_return * 100],
@@ -396,9 +407,9 @@ def plot_efficient_frontier_interactive(
                 symbol="circle", color="#1f77b4", size=18,
                 line=dict(width=2, color="black"),
             ),
-            name=f"Four Umbrellas (Sharpe {four_umbrellas_point.sharpe:.2f})",
+            name=f"{short_label} (Sharpe {four_umbrellas_point.sharpe:.2f})",
             text=[
-                f"<b>Four Umbrellas</b> (liquid sleeves, normalized)<br>"
+                f"<b>{full_label}</b><br>"
                 f"Return: {four_umbrellas_point.expected_return * 100:.2f}%<br>"
                 f"Vol: {four_umbrellas_point.volatility * 100:.2f}%<br>"
                 f"Sharpe: {four_umbrellas_point.sharpe:.2f}<br><br>"

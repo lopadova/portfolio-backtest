@@ -661,9 +661,11 @@ with tab_settings:
         value=st.session_state["walkforward_enabled"],
         help=(
             "Rolls a fixed-size window across the history, simulating the "
-            "portfolio on each window. Requires ≥ 20 years of common history "
-            "across all portfolio assets — otherwise the run is skipped with "
-            "a warning."
+            "portfolio on each window. Requires common history across all "
+            "portfolio assets at least as long as the selected window size "
+            "(in years) — otherwise the run is skipped with a warning. For "
+            "stable percentile tail estimates, at least 20 years of common "
+            "history is generally recommended."
         ),
     )
     c_ww, c_ws = st.columns(2)
@@ -831,10 +833,13 @@ if run_btn:
         walkforward_skipped_reason = None
         if st.session_state["walkforward_enabled"]:
             window_years = int(st.session_state["walkforward_window_years"])
-            # Gate: walk-forward needs ≥ window_years of common asset history
-            # (20 is the classic "Ongaro" threshold — surfaced to the user when
-            # the configured window requires more than we have).
-            available_years = common_history_years(bundle_sliced, user_portfolio, catalog)
+            step_months = int(st.session_state["walkforward_step_months"])
+            # Gate: walk-forward needs common history (across the actual
+            # bundle, sliced to the user's date range) ≥ window_years.
+            # We compute the gate from the SAME bundle that will be fed to
+            # run_rolling_backtest, so any gate pass is also a guarantee
+            # the run won't crash with 'Data range shorter than window'.
+            available_years = common_history_years(bundle_sliced, user_portfolio)
             if available_years < window_years:
                 walkforward_skipped_reason = (
                     f"Storico insufficiente: {available_years:.1f} anni di storia comune "
@@ -843,16 +848,31 @@ if run_btn:
                 )
             else:
                 with st.spinner(
-                    f"Running {window_years}-year walk-forward (step {st.session_state['walkforward_step_months']} months)..."
+                    f"Running {window_years}-year walk-forward (step {step_months} months)..."
                 ):
-                    wf_df = run_rolling_backtest(
-                        bundle_sliced,
-                        portfolio=user_portfolio,
-                        window_years=window_years,
-                        step_months=int(st.session_state["walkforward_step_months"]),
-                    )
-                    wf_stats = rolling_summary_statistics(wf_df)
-                    walkforward_result = (wf_df, wf_stats, window_years)
+                    # Defensive try/except: even with the gate above, a
+                    # pathological combination (e.g. all-NaN tail rows at
+                    # the bundle end) could still trip rolling_window's
+                    # own validation. Convert any ValueError into a clean
+                    # "skipped" message instead of a Streamlit red traceback.
+                    try:
+                        wf_df = run_rolling_backtest(
+                            bundle_sliced,
+                            portfolio=user_portfolio,
+                            window_years=window_years,
+                            step_months=step_months,
+                        )
+                        wf_stats = rolling_summary_statistics(wf_df)
+                        # Snapshot step_months into the result so the tab
+                        # renders the chart with the step size that was
+                        # ACTUALLY used for this run — not whatever value
+                        # the live session_state holds now (the user may
+                        # have tweaked the slider since).
+                        walkforward_result = (wf_df, wf_stats, window_years, step_months)
+                    except ValueError as e:
+                        walkforward_skipped_reason = (
+                            f"Walk-forward non eseguibile su questo bundle: {e}"
+                        )
 
     # Output directory: ephemeral tempdir unless user ticked Save
     _tempdir_key = "_dashboard_tempdir"
@@ -1143,11 +1163,16 @@ with tab_walkforward:
             "portafoglio con asset più longevi."
         )
     else:
-        wf_df, wf_stats, window_years = last_run["walkforward_result"]
+        # Unpack the snapshot saved by the Run path — step_months is the
+        # value that was in effect when the simulation ran, NOT the live
+        # session_state (which the user could have tweaked since).
+        wf_df, wf_stats, window_years, step_months = last_run["walkforward_result"]
         output_dir = last_run["output_dir"]
 
         st.subheader(f"Walk-forward {window_years}-year backtest")
-        st.caption(f"{len(wf_df)} windows across the configured period.")
+        st.caption(
+            f"{len(wf_df)} windows (step {step_months} months) across the configured period."
+        )
 
         m1, m2, m3 = st.columns(3)
         m1.metric("CAGR median", f"{wf_stats['cagr_median']:.2%}",
@@ -1164,8 +1189,7 @@ with tab_walkforward:
 
         wf_png = output_dir / f"walkforward_{window_years}y.png"
         plot_rolling_window_results(
-            wf_df, window_years, wf_png,
-            step_months=int(st.session_state["walkforward_step_months"]),
+            wf_df, window_years, wf_png, step_months=step_months,
         )
         st.image(str(wf_png), use_container_width=True)
 

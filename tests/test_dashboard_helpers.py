@@ -246,37 +246,43 @@ class TestFormatAssetStartDate:
 
 
 class TestCommonHistoryYears:
-    def _bundle_ending_2024(self):
-        return _generate_synthetic_bundle()  # ends 2024-12-31
+    """Post-Copilot-review (PR #19): this helper now computes from the
+    ACTUAL bundle (``monthly_returns_eur`` index + per-column
+    first_valid_index), not from the catalog's ``AssetInfo.start_date``.
+    This guarantees the gate agrees with what ``run_rolling_backtest`` sees.
+    """
 
-    def test_all_assets_with_full_history(self):
-        """Portfolio where every asset has start_date ≤ bundle_start → the
-        function returns the full bundle length (~20y for synthetic)."""
-        bundle = self._bundle_ending_2024()
-        catalog = _toy_catalog()
-        # gold starts 2003, bundle starts 2005, bundle ends 2024
-        # common history = (2024-12 - 2003-01) ~ 22 years
-        p = Portfolio(
-            name="P", assets=[AssetAllocation("gold", 1.0)],
-        )
-        years = common_history_years(bundle, p, catalog)
-        assert years == pytest.approx(22.0, abs=0.5)
+    def _synthetic_bundle(self):
+        """Synthetic bundle: monthly index spans 2005-01-31 → 2024-12-31
+        (~20 years) with every sleeve fully populated (no NaN prefix)."""
+        return _generate_synthetic_bundle()
 
-    def test_btc_constrains_to_10_years(self):
-        """BTC starts 2014-09; bundle ends 2024-12 → ~10.3 years."""
-        bundle = self._bundle_ending_2024()
-        catalog = _toy_catalog()
+    def test_full_synthetic_bundle_yields_20_years(self):
+        """Every asset is populated from the first bundle row → common
+        history is the full bundle span."""
+        bundle = self._synthetic_bundle()
+        p = Portfolio(name="P", assets=[AssetAllocation("gold", 1.0)])
+        years = common_history_years(bundle, p)
+        # Synthetic bundle is 2005-01-31 through 2024-12-31 → ~20 years
+        assert 19.5 <= years <= 20.5
+
+    def test_multiple_assets_full_history(self):
+        bundle = self._synthetic_bundle()
         p = Portfolio(
             name="P",
-            assets=[AssetAllocation("gold", 0.5), AssetAllocation("btc", 0.5)],
+            assets=[
+                AssetAllocation("gold", 0.4),
+                AssetAllocation("quality", 0.4),
+                AssetAllocation("momentum", 0.2),
+            ],
         )
-        years = common_history_years(bundle, p, catalog)
-        assert 9.5 <= years <= 10.5
+        years = common_history_years(bundle, p)
+        assert 19.5 <= years <= 20.5
 
     def test_cash_does_not_constrain(self):
-        """Cash is always-available; it should NOT reduce the common history."""
-        bundle = self._bundle_ending_2024()
-        catalog = _toy_catalog()
+        """Adding cash must not shorten the common history — cash is always
+        available."""
+        bundle = self._synthetic_bundle()
         p_with_cash = Portfolio(
             name="With cash",
             assets=[AssetAllocation("gold", 0.5), AssetAllocation("cash", 0.5)],
@@ -285,33 +291,62 @@ class TestCommonHistoryYears:
             name="No cash",
             assets=[AssetAllocation("gold", 1.0)],
         )
-        assert common_history_years(bundle, p_with_cash, catalog) == pytest.approx(
-            common_history_years(bundle, p_without_cash, catalog),
+        assert common_history_years(bundle, p_with_cash) == pytest.approx(
+            common_history_years(bundle, p_without_cash),
         )
 
-    def test_asset_without_catalog_entry_ignored(self):
-        """Unknown keys don't crash; they're skipped from the constraint."""
-        bundle = self._bundle_ending_2024()
-        catalog = _toy_catalog()
+    def test_asset_missing_from_bundle_columns_returns_zero(self):
+        """If a portfolio asset key isn't in the bundle columns,
+        simulate_portfolio_generic would silently drop it — so the
+        walk-forward gate must hard-fail to 0 rather than pretend the
+        portfolio has coverage it doesn't."""
+        bundle = self._synthetic_bundle()
         p = Portfolio(
             name="P",
             assets=[
                 AssetAllocation("gold", 0.5),
-                AssetAllocation("not_in_catalog", 0.5),
+                AssetAllocation("not_in_bundle", 0.5),
             ],
         )
-        # Should behave like portfolio with gold only
-        years = common_history_years(bundle, p, catalog)
-        assert years == pytest.approx(22.0, abs=0.5)
+        assert common_history_years(bundle, p) == 0.0
 
-    def test_returns_zero_when_no_catalog_entry(self):
-        """Pathological case: every asset is unknown. Return 0.0 so the UI
-        can gracefully show 'insufficient history'."""
-        bundle = self._bundle_ending_2024()
+    def test_nan_prefix_shortens_common_history(self):
+        """Asset with NaN values at the start of the bundle (e.g. BTC
+        before activation) constrains common history to the first valid
+        date across all assets."""
+        bundle = self._synthetic_bundle()
+        # Forcibly NaN the first 60 months (5 years) of gold in a COPY
+        # so we don't mutate the shared synthetic bundle fixture.
+        import copy as _copy
+        bundle_patched = _copy.deepcopy(bundle)
+        bundle_patched.monthly_returns_eur.iloc[:60, bundle.monthly_returns_eur.columns.get_loc("gold")] = float("nan")
+
         p = Portfolio(
-            name="P", assets=[AssetAllocation("mystery", 1.0)],
+            name="P",
+            assets=[AssetAllocation("gold", 0.5), AssetAllocation("cash", 0.5)],
         )
-        assert common_history_years(bundle, p, {}) == 0.0
+        years = common_history_years(bundle_patched, p)
+        # Bundle is ~20 years; 5 years of leading NaN → ~15 years of common history.
+        assert 14.5 <= years <= 15.5
+
+    def test_sliced_bundle_reduces_history(self):
+        """Slicing the bundle to a narrower range must reduce common history
+        proportionally — proves the helper reads from the actual bundle index,
+        not from catalog metadata."""
+        bundle = self._synthetic_bundle()
+        sliced = bundle.slice(pd.Timestamp("2015-01-31"), pd.Timestamp("2024-12-31"))
+        p = Portfolio(name="P", assets=[AssetAllocation("gold", 1.0)])
+        years = common_history_years(sliced, p)
+        assert 9.5 <= years <= 10.5
+
+    def test_returns_zero_for_empty_bundle(self):
+        """Edge case: bundle has no rows. The helper must not crash."""
+        bundle = self._synthetic_bundle()
+        import copy as _copy
+        empty = _copy.deepcopy(bundle)
+        empty.monthly_returns_eur = empty.monthly_returns_eur.iloc[0:0]
+        p = Portfolio(name="P", assets=[AssetAllocation("gold", 1.0)])
+        assert common_history_years(empty, p) == 0.0
 
 
 # ---------------------- fire_config_from_ui_state (PR5) ---------------------

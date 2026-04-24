@@ -201,36 +201,53 @@ def format_asset_start_date(info: Optional[AssetInfo]) -> str:
 def common_history_years(
     bundle: DataBundle,
     portfolio: Portfolio,
-    catalog: Dict[str, AssetInfo],
 ) -> float:
-    """Years of history common to every portfolio asset (cash and
-    catalog-less keys excluded).
+    """Years of history common to every portfolio asset in the **actual
+    bundle** — not the catalog metadata.
 
-    Walk-forward simulations require at least ``window_years`` of history
-    shared by all assets; the Simulazione storica tab uses this helper to
-    gate runs against a 20-year minimum.
+    Walk-forward simulations need common history covering every
+    non-cash asset in the portfolio. The gating helper must agree with
+    what :func:`src.rolling_window.run_rolling_backtest` will actually
+    see, otherwise the gate passes for cases that then crash with
+    ``ValueError: Data range shorter than the window``.
 
-    ``cash`` is treated as always-available: it's the zero-yield residual
-    and doesn't constrain the window. Keys missing from the catalog are
-    skipped (same conservative policy as :func:`compute_effective_start`).
-    If no asset in the portfolio has a ``start_date`` that we can see,
-    returns 0.0 (the UI will render this as "insufficient history").
+    Sources of truth:
+      - ``bundle.monthly_returns_eur.index`` (the sliced-or-full date range)
+      - ``<column>.first_valid_index()`` per asset (handles NaN-padded
+        histories, e.g. BTC before its activation date)
+
+    ``cash`` is treated as always-available (zero-yield residual).
+    Keys not present in the bundle's columns return ``0.0`` — those would
+    also be silently dropped by ``simulate_portfolio_generic`` and are a
+    user-visible bug the picker should have prevented (see PR4/18 review).
+
+    The previous implementation (PR5 first pass) read
+    ``AssetInfo.start_date`` from the catalog, which gave wrong answers
+    in synthetic mode (no date augmentation → always 0.0) and
+    over-estimated when the user sliced the bundle to a narrower range.
     """
-    bundle_end = bundle.monthly_returns_eur.index[-1]
-    latest_start: Optional[pd.Timestamp] = None
+    returns_df = bundle.monthly_returns_eur
+    if len(returns_df.index) == 0:
+        return 0.0
+    bundle_start = returns_df.index[0]
+    bundle_end = returns_df.index[-1]
+
+    latest_start: pd.Timestamp = bundle_start
     for alloc in portfolio.assets:
         if alloc.key == "cash":
             continue
-        info = catalog.get(alloc.key)
-        if info is None or info.start_date is None:
-            continue
-        if latest_start is None or info.start_date > latest_start:
-            latest_start = info.start_date
+        if alloc.key not in returns_df.columns:
+            # Asset can't be simulated on this bundle → no common history.
+            return 0.0
+        first_valid = returns_df[alloc.key].first_valid_index()
+        if first_valid is None:
+            return 0.0
+        if first_valid > latest_start:
+            latest_start = first_valid
 
-    if latest_start is None or latest_start >= bundle_end:
+    if latest_start >= bundle_end:
         return 0.0
-    delta_days = (bundle_end - latest_start).days
-    return delta_days / 365.25
+    return (bundle_end - latest_start).days / 365.25
 
 
 def fire_config_from_ui_state(state: Dict[str, Any]) -> FireConfig:
