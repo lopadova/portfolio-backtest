@@ -10,6 +10,12 @@ venv/
 data/raw/*.csv
 !data/raw/.gitkeep
 
+# Portfolio presets (user-saved portfolios stay local; shipped presets are
+# explicitly whitelisted below)
+portfolios/*.toml
+!portfolios/four_umbrellas.toml
+!portfolios/*.example.toml
+
 # Outputs
 output/
 !output/.gitkeep
