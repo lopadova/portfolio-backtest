@@ -777,6 +777,10 @@ if run_btn:
                 rf_daily=bundle_sliced.rf_daily,
                 nav_series=nav_series,
                 rebalance_months=user_portfolio.rebalance_months,
+                # PR7: per-Portfolio override. None falls back to the global
+                # OPTIONS so loading a TOML preset without [options] keeps
+                # the same overlay defaults as before.
+                options_config=user_portfolio.options_config,
             )
             overlay_aligned = overlay_returns.reindex(base_returns.index).fillna(0.0)
             returns_dict[user_portfolio.name] = base_returns + overlay_aligned

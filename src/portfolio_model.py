@@ -33,6 +33,7 @@ hand-rolled emitter in ``_dump_toml`` — keeps this module stdlib-only.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 import tomllib
@@ -42,6 +43,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
+
+from .portfolio import OptionsConfig
 
 _WEIGHTS_SUM_TOLERANCE = 0.002
 DEFAULT_PORTFOLIOS_DIR = Path(__file__).resolve().parent.parent / "portfolios"
@@ -122,6 +125,11 @@ class Portfolio:
     # PR6 — optional cached metrics from the last successful simulation.
     # Never enters `validate()` (it's auxiliary metadata, not engine config).
     cached_metrics: Optional[PortfolioMetricsCache] = None
+    # PR7 — optional OptionsConfig override. When None, the engine falls
+    # back to the global ``src.portfolio.OPTIONS`` (legacy behavior). When
+    # set, it's an isolated copy that the user / sweep / saved preset
+    # carries around without touching globals.
+    options_config: Optional[OptionsConfig] = None
 
     # ---------------------------------------------------------------- validate
     def validate(self) -> None:
@@ -241,6 +249,7 @@ class Portfolio:
                 f"got {data.get('transaction_cost_bps')!r}: {exc}"
             ) from exc
         cached_metrics = _parse_metrics_section(data.get("metrics"))
+        options_config = _parse_options_section(data.get("options"))
         p = cls(
             name=str(data["name"]),
             assets=assets,
@@ -249,6 +258,7 @@ class Portfolio:
             transaction_cost_bps=transaction_cost_bps,
             notes=str(data.get("notes", "")),
             cached_metrics=cached_metrics,
+            options_config=options_config,
         )
         p.validate()
         return p
@@ -384,7 +394,153 @@ def _dump_toml(p: Portfolio) -> str:
         lines.append(f'period_start = "{m.period_start.date().isoformat()}"')
         lines.append(f'period_end = "{m.period_end.date().isoformat()}"')
         lines.append(f'run_timestamp = "{m.run_timestamp.isoformat(timespec="seconds")}"')
+    if p.options_config is not None:
+        opts_lines = _dump_options_section(p.options_config)
+        if opts_lines:  # only emit when there are non-default fields to record
+            lines.append("")
+            lines.append("[options]")
+            lines.extend(opts_lines)
     return "\n".join(lines) + "\n"
+
+
+def _dump_options_section(cfg: OptionsConfig) -> List[str]:
+    """Emit ONLY the fields of ``cfg`` that differ from ``OptionsConfig()``
+    defaults. Keeps preset TOMLs minimal: a user who just wants the overlay
+    on but nothing custom doesn't end up with a 10-line ``[options]`` block.
+    Returns an empty list when ``cfg`` matches the defaults exactly.
+
+    Symmetric with :func:`_parse_options_section` — only emits fields that
+    the parser accepts. ``enabled`` is excluded by design (the canonical
+    on/off lives on ``Portfolio.options_overlay``, not in the per-field
+    OptionsConfig), so a non-default ``enabled`` value never round-trips
+    via TOML; that's intentional, not a bug.
+    """
+    default = OptionsConfig()
+    out: List[str] = []
+    for f in dataclasses.fields(cfg):
+        if f.name not in _OPTIONS_ALLOWED_FIELDS:
+            continue
+        cur = getattr(cfg, f.name)
+        dflt = getattr(default, f.name)
+        if cur == dflt:
+            continue
+        # Format per type. Tuples become inline arrays; bools lower-case;
+        # everything else relies on Python's str() (TOML-compatible for
+        # ints/floats).
+        if isinstance(cur, bool):
+            out.append(f"{f.name} = {'true' if cur else 'false'}")
+        elif isinstance(cur, tuple):
+            out.append(f"{f.name} = [{', '.join(str(v) for v in cur)}]")
+        elif isinstance(cur, str):
+            out.append(f'{f.name} = "{_escape_toml_basic_string(cur)}"')
+        else:
+            out.append(f"{f.name} = {cur}")
+    return out
+
+
+# Fields exposed in the TOML [options] section. ``enabled`` is intentionally
+# EXCLUDED: ``Portfolio.options_overlay`` is the canonical on/off switch
+# read by simulate_options_overlay. Letting users persist ``[options].enabled
+# = false`` would create a confusing preset where the field is recorded but
+# the engine ignores it (the runtime check is on Portfolio.options_overlay).
+_OPTIONS_ALLOWED_FIELDS = frozenset({
+    "budget_nav_per_year", "hedge_ratio_of_equity", "spy_qqq_split",
+    "long_strike_pct", "short_strike_pct", "tenor_months",
+    "take_profit_partial_multiple", "take_profit_full_multiple",
+    "commission_per_contract", "iv_skew_adjustment",
+})
+
+_OPTIONS_FLOAT_FIELDS = frozenset({
+    "budget_nav_per_year", "hedge_ratio_of_equity",
+    "long_strike_pct", "short_strike_pct",
+    "take_profit_partial_multiple", "take_profit_full_multiple",
+    "commission_per_contract", "iv_skew_adjustment",
+})
+
+_OPTIONS_INT_FIELDS = frozenset({"tenor_months"})
+
+
+def _coerce_options_field(key: str, value: Any) -> Any:
+    """Per-field type coercion for the ``[options]`` TOML section.
+
+    ``dataclasses.replace`` does not enforce type annotations, so without
+    this helper a hand-edited ``tenor_months = "6"`` (string) would slip
+    through and crash deep inside the engine. We explicitly coerce to
+    the expected concrete type here and raise a targeted ``ValueError``
+    naming the offending field if coercion fails.
+    """
+    if key == "spy_qqq_split":
+        if not isinstance(value, list) or len(value) != 2:
+            raise ValueError(
+                f"[options].spy_qqq_split must be a 2-element list, got {value!r}"
+            )
+        try:
+            return tuple(float(v) for v in value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"[options].spy_qqq_split entries must be numeric, got {value!r}: {exc}"
+            ) from exc
+
+    if key in _OPTIONS_FLOAT_FIELDS:
+        # Reject str (the most common user mistake — TOML accepts both
+        # `0.003` and `"0.003"`, the second is a parse-time crash later).
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(
+                f"[options].{key} must be a number, got {type(value).__name__} {value!r}"
+            )
+        return float(value)
+
+    if key in _OPTIONS_INT_FIELDS:
+        # bool is a subclass of int in Python — reject it explicitly so
+        # `tenor_months = true` isn't silently accepted as 1.
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(
+                f"[options].{key} must be an integer, got {type(value).__name__} {value!r}"
+            )
+        return int(value)
+
+    # Fall-through: reject anything else (defensive — shouldn't fire
+    # because _OPTIONS_ALLOWED_FIELDS covers exactly these branches).
+    raise ValueError(  # pragma: no cover
+        f"[options].{key} has no coercion rule defined"
+    )
+
+
+def _parse_options_section(section: Any) -> Optional[OptionsConfig]:
+    """Parse the optional ``[options]`` section into an :class:`OptionsConfig`.
+
+    Starts from the dataclass defaults and overrides only the fields
+    present in the TOML — symmetric with the emitter, which writes only
+    non-default fields. Returns ``None`` when the section is absent.
+
+    Raises ``ValueError`` for:
+      - Section not a table
+      - Unknown field names (catches typos like ``budgetnav_per_year``)
+      - Use of ``enabled`` (the canonical on/off is ``Portfolio.options_overlay``;
+        accepting it here would let users save a preset whose ``enabled``
+        bit has no effect at runtime)
+      - Wrong types (e.g. ``tenor_months = "6"`` as a string)
+    """
+    if section is None:
+        return None
+    if not isinstance(section, dict):
+        raise ValueError("Portfolio [options] section must be a TOML table")
+    overrides: Dict[str, Any] = {}
+    for key, value in section.items():
+        if key == "enabled":
+            raise ValueError(
+                "Portfolio [options] field 'enabled' is not allowed. The "
+                "overlay on/off switch is the top-level 'options_overlay' "
+                "field on Portfolio; persisting 'enabled' inside [options] "
+                "would create a preset where the field has no runtime effect."
+            )
+        if key not in _OPTIONS_ALLOWED_FIELDS:
+            raise ValueError(
+                f"Portfolio [options] unknown field {key!r}. "
+                f"Valid fields: {sorted(_OPTIONS_ALLOWED_FIELDS)}"
+            )
+        overrides[key] = _coerce_options_field(key, value)
+    return dataclasses.replace(OptionsConfig(), **overrides)
 
 
 def _parse_metrics_section(section: Any) -> Optional[PortfolioMetricsCache]:

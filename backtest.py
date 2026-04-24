@@ -177,6 +177,10 @@ def run_backtest(
             vix_daily=bundle.vix_daily,
             rf_daily=bundle.rf_daily,
             nav_series=nav_series,
+            # PR7: when the Portfolio carries an options_config override,
+            # pass it through. None falls back to the global OPTIONS,
+            # preserving pre-PR7 byte-identical output for the default preset.
+            options_config=portfolio.options_config if portfolio is not None else None,
         )
         # Align and combine
         overlay_aligned = overlay_returns.reindex(base_returns.index).fillna(0.0)
