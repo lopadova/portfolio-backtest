@@ -16,7 +16,7 @@ If you are an investor, quant curious, aspiring FIRE retiree, or data scientist 
 
 This codebase is the open-source companion to the Medium article [*"The Four Umbrellas Portfolio"*](https://medium.com/@padosoft). Every allocation decision, every metric, every chart in the article is reproducible here.
 
-![Streamlit dashboard — Summary tab with statistics and crisis drawdowns](resources/summary.png)
+![Streamlit dashboard — Charts tab with equity curve and drawdown](resources/charts.png)
 
 ---
 
