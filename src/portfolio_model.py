@@ -35,9 +35,9 @@ from __future__ import annotations
 
 import json
 import tomllib
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 _WEIGHTS_SUM_TOLERANCE = 0.002
 DEFAULT_PORTFOLIOS_DIR = Path(__file__).resolve().parent.parent / "portfolios"
@@ -126,22 +126,65 @@ class Portfolio:
     # ----------------------------------------------------------------- loaders
     @classmethod
     def from_dict(cls, data: dict) -> "Portfolio":
-        """Build a Portfolio from a plain dict (used by all loaders)."""
+        """Build a Portfolio from a plain dict (used by all loaders).
+
+        Malformed input always surfaces as ``ValueError`` with a clear message
+        — never an uncaught ``KeyError`` / ``TypeError`` — so the CLI's
+        ``except ValueError`` path in ``_resolve_portfolio_or_exit`` can
+        translate it to a friendly exit-2 message instead of a traceback.
+        """
         if "name" not in data:
             raise ValueError("Portfolio definition missing required field: name")
         if "assets" not in data or not data["assets"]:
             raise ValueError("Portfolio definition missing required field: assets")
-        assets = [
-            AssetAllocation(key=str(a["key"]), weight=float(a["weight"]))
-            for a in data["assets"]
-        ]
-        rebalance_months = tuple(int(m) for m in data.get("rebalance_months", [1, 7]))
+        if not isinstance(data["assets"], list):
+            raise ValueError(
+                f"Portfolio field 'assets' must be a list of allocations, "
+                f"got {type(data['assets']).__name__}"
+            )
+        assets: List[AssetAllocation] = []
+        for i, a in enumerate(data["assets"]):
+            if not isinstance(a, dict):
+                raise ValueError(
+                    f"Portfolio asset at index {i} must be a mapping with "
+                    f"'key' and 'weight' fields, got {type(a).__name__}"
+                )
+            if "key" not in a:
+                raise ValueError(
+                    f"Portfolio asset at index {i} missing required field: key"
+                )
+            if "weight" not in a:
+                raise ValueError(
+                    f"Portfolio asset at index {i} missing required field: weight"
+                )
+            try:
+                asset = AssetAllocation(key=str(a["key"]), weight=float(a["weight"]))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Portfolio asset at index {i} (key={a.get('key')!r}) has "
+                    f"invalid weight {a.get('weight')!r}: {exc}"
+                ) from exc
+            assets.append(asset)
+        try:
+            rebalance_months = tuple(int(m) for m in data.get("rebalance_months", [1, 7]))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Portfolio 'rebalance_months' must be a list of ints 1..12, "
+                f"got {data.get('rebalance_months')!r}: {exc}"
+            ) from exc
+        try:
+            transaction_cost_bps = float(data.get("transaction_cost_bps", 20.0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Portfolio 'transaction_cost_bps' must be a number, "
+                f"got {data.get('transaction_cost_bps')!r}: {exc}"
+            ) from exc
         p = cls(
             name=str(data["name"]),
             assets=assets,
             options_overlay=bool(data.get("options_overlay", False)),
             rebalance_months=rebalance_months,
-            transaction_cost_bps=float(data.get("transaction_cost_bps", 20.0)),
+            transaction_cost_bps=transaction_cost_bps,
             notes=str(data.get("notes", "")),
         )
         p.validate()

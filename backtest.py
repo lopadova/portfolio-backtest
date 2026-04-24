@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tomllib
 from pathlib import Path
 from typing import Dict, List
 
@@ -97,7 +98,9 @@ def parse_args(argv=None):
     p.add_argument("--portfolio", type=str, default=None,
         help="Portfolio to run: NAME (resolves to portfolios/<name>.toml), "
              "PATH (ends in .toml or contains a / or \\), or inline JSON starting with '{'. "
-             "Default: 'four_umbrellas' (the legacy preset).")
+             "When omitted, the CLI defaults to the 'four_umbrellas' preset "
+             "(argparse default is None; defaulting is applied by "
+             "_resolve_portfolio_or_exit()).")
     p.add_argument("--list-portfolios", action="store_true",
         help="List available preset portfolios (portfolios/*.toml) and exit.")
 
@@ -109,7 +112,7 @@ def run_backtest(
     enable_options: bool,
     start_nav: float,
     args,
-    portfolio: Portfolio = None,
+    portfolio: Portfolio | None = None,
 ) -> Dict[str, pd.Series]:
     """Run the main portfolio + benchmarks. Returns dict of name -> monthly return series.
 
@@ -367,27 +370,65 @@ def _print_preset_listing() -> None:
         print(f"{e['name']:<30} {e['n_assets']:>6}  {e['notes'] or e['display_name']}")
 
 
+_DEFAULT_PORTFOLIO_NAME = "four_umbrellas"
+
+
 def _resolve_portfolio_or_exit(spec: str | None) -> Portfolio:
     """Resolve the ``--portfolio`` CLI spec to a Portfolio, or exit(2) with a
-    helpful error on failure. Default is the 'four_umbrellas' preset."""
-    spec = spec if spec is not None else "four_umbrellas"
+    helpful error on failure. Default is the 'four_umbrellas' preset.
+
+    Catches every expected parser/validation error: ``FileNotFoundError``
+    (bad path / missing preset), ``ValueError`` (malformed JSON, bad
+    weights, missing required fields), ``tomllib.TOMLDecodeError``
+    (corrupt preset file). Anything else is a genuine bug and bubbles up.
+    """
+    spec = spec if spec is not None else _DEFAULT_PORTFOLIO_NAME
     try:
         return Portfolio.resolve(spec)
-    except (FileNotFoundError, ValueError) as e:
+    except (FileNotFoundError, ValueError, tomllib.TOMLDecodeError) as e:
         print(f"ERROR loading portfolio spec: {e}", file=sys.stderr)
         sys.exit(2)
 
 
-def _warn_if_custom_portfolio_with_advanced_analysis(
-    args, portfolio: Portfolio, default_preset_name: str = "Four Umbrellas"
-) -> None:
+def _is_default_portfolio_spec(spec: str | None) -> bool:
+    """True iff the CLI spec selects the shipped default preset. Uses the
+    spec string (argparse input), not ``portfolio.name``, because display
+    names are user-controlled: a malicious or careless custom preset could
+    set ``name = "Four Umbrellas"`` and bypass a name-based check."""
+    if spec is None:
+        return True
+    s = spec.strip()
+    # Bare name match
+    if s == _DEFAULT_PORTFOLIO_NAME:
+        return True
+    # Explicit path to the shipped preset (relative or absolute)
+    if s.endswith(".toml"):
+        try:
+            resolved = Path(s).resolve()
+        except OSError:
+            return False
+        default_path = (
+            Path(__file__).resolve().parent
+            / "portfolios"
+            / f"{_DEFAULT_PORTFOLIO_NAME}.toml"
+        )
+        return resolved == default_path
+    return False
+
+
+def _warn_if_custom_portfolio_with_advanced_analysis(args) -> None:
     """PR2 coexistence warning. ``--sensitivity`` / ``--rolling-window`` /
     ``--efficient-frontier`` still read from the src.portfolio globals in
     this phase (PR3 wires them to accept a Portfolio). If the user combines
     a custom portfolio with one of these flags, tell them clearly that the
     advanced analysis will reflect the DEFAULT preset, not their custom
-    portfolio, so they're not silently misled."""
-    is_custom = portfolio.name != default_preset_name
+    portfolio, so they're not silently misled.
+
+    Detection is based on the CLI spec (``args.portfolio``), not on the
+    Portfolio's display name — see ``_is_default_portfolio_spec``.
+    """
+    spec = getattr(args, "portfolio", None)
+    is_custom = not _is_default_portfolio_spec(spec)
     advanced_requested = any([
         args.sensitivity, args.rolling_window, args.efficient_frontier,
     ])
@@ -395,7 +436,7 @@ def _warn_if_custom_portfolio_with_advanced_analysis(
         print(
             "\nWARNING: --sensitivity / --rolling-window / --efficient-frontier "
             f"currently use the Four Umbrellas preset, not your custom portfolio "
-            f"({portfolio.name!r}). This limitation will be lifted in PR3. "
+            f"({spec!r}). This limitation will be lifted in PR3. "
             "The main backtest (no-options / options overlay / benchmarks) "
             "DOES use your custom portfolio.\n",
             file=sys.stderr,
@@ -412,7 +453,7 @@ def main():
 
     # Resolve the requested portfolio (default: four_umbrellas preset).
     portfolio = _resolve_portfolio_or_exit(args.portfolio)
-    _warn_if_custom_portfolio_with_advanced_analysis(args, portfolio)
+    _warn_if_custom_portfolio_with_advanced_analysis(args)
 
     # Load data
     print(f"Loading data (synthetic={args.synthetic}) ...")

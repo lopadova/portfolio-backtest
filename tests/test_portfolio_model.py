@@ -158,6 +158,50 @@ class TestFromDict:
                 {"name": "x", "assets": [{"key": "gold", "weight": 0.5}]}
             )
 
+    def test_assets_not_a_list(self):
+        """Copilot review: malformed inputs should raise ValueError, not
+        KeyError/TypeError, so the CLI can translate them to a clean exit 2."""
+        with pytest.raises(ValueError, match="must be a list"):
+            Portfolio.from_dict({"name": "x", "assets": "gold"})
+
+    def test_asset_not_a_dict(self):
+        with pytest.raises(ValueError, match="index 0 must be a mapping"):
+            Portfolio.from_dict({"name": "x", "assets": [123]})
+
+    def test_asset_missing_key(self):
+        with pytest.raises(ValueError, match="missing required field: key"):
+            Portfolio.from_dict({"name": "x", "assets": [{"weight": 1.0}]})
+
+    def test_asset_missing_weight(self):
+        with pytest.raises(ValueError, match="missing required field: weight"):
+            Portfolio.from_dict({"name": "x", "assets": [{"key": "gold"}]})
+
+    def test_asset_weight_not_numeric(self):
+        with pytest.raises(ValueError, match="invalid weight"):
+            Portfolio.from_dict(
+                {"name": "x", "assets": [{"key": "gold", "weight": "half"}]}
+            )
+
+    def test_rebalance_months_bad_value(self):
+        with pytest.raises(ValueError, match="rebalance_months"):
+            Portfolio.from_dict(
+                {
+                    "name": "x",
+                    "assets": [{"key": "gold", "weight": 1.0}],
+                    "rebalance_months": ["jan"],
+                }
+            )
+
+    def test_transaction_cost_bad_value(self):
+        with pytest.raises(ValueError, match="transaction_cost_bps"):
+            Portfolio.from_dict(
+                {
+                    "name": "x",
+                    "assets": [{"key": "gold", "weight": 1.0}],
+                    "transaction_cost_bps": "free",
+                }
+            )
+
 
 class TestFromToml:
     def test_round_trip(self, tmp_path):

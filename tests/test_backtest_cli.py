@@ -89,12 +89,18 @@ class TestListPresets:
 
 
 class TestAdvancedAnalysisWarning:
-    """The warning guard about custom-portfolio + --sensitivity/etc."""
+    """The warning guard about custom-portfolio + --sensitivity/etc.
 
-    def _args(self, **overrides):
+    Post-Copilot-review: detection is based on the CLI spec
+    (``args.portfolio``), not on the loaded Portfolio's display name,
+    because display names are user-controlled and could spoof 'Four
+    Umbrellas' on an otherwise-custom preset."""
+
+    def _args(self, portfolio=None, **overrides):
         """Build a minimal argparse Namespace with the flags the warning checks."""
         import argparse
         ns = argparse.Namespace(
+            portfolio=portfolio,
             sensitivity=None,
             rolling_window=False,
             efficient_frontier=False,
@@ -104,55 +110,105 @@ class TestAdvancedAnalysisWarning:
         return ns
 
     def test_silent_on_default_preset(self, capsys):
-        preset = backtest_mod._resolve_portfolio_or_exit(None)
         backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
-            self._args(sensitivity="gold"), preset
+            self._args(portfolio=None, sensitivity="gold")
+        )
+        assert capsys.readouterr().err == ""
+
+    def test_silent_on_explicit_default_by_name(self, capsys):
+        backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
+            self._args(portfolio="four_umbrellas", sensitivity="gold")
+        )
+        assert capsys.readouterr().err == ""
+
+    def test_silent_on_explicit_default_by_path(self, capsys):
+        path = str(PROJECT_ROOT / "portfolios" / "four_umbrellas.toml")
+        backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
+            self._args(portfolio=path, sensitivity="gold")
         )
         assert capsys.readouterr().err == ""
 
     def test_silent_on_default_preset_without_advanced(self, capsys):
-        preset = backtest_mod._resolve_portfolio_or_exit(None)
         backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
-            self._args(), preset
+            self._args(portfolio=None)
         )
         assert capsys.readouterr().err == ""
 
     def test_silent_on_custom_without_advanced(self, capsys):
         raw = '{"name":"Toy","assets":[{"key":"gold","weight":0.5},{"key":"cash","weight":0.5}]}'
-        p = Portfolio.resolve(raw)
         backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
-            self._args(), p
+            self._args(portfolio=raw)
         )
         assert capsys.readouterr().err == ""
 
     def test_warns_on_custom_with_sensitivity(self, capsys):
         raw = '{"name":"Toy","assets":[{"key":"gold","weight":0.5},{"key":"cash","weight":0.5}]}'
-        p = Portfolio.resolve(raw)
         backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
-            self._args(sensitivity="gold"), p
+            self._args(portfolio=raw, sensitivity="gold")
         )
         err = capsys.readouterr().err
         assert "WARNING" in err
-        assert "'Toy'" in err
         assert "PR3" in err
 
     def test_warns_on_custom_with_rolling_window(self, capsys):
         raw = '{"name":"Toy","assets":[{"key":"gold","weight":0.5},{"key":"cash","weight":0.5}]}'
-        p = Portfolio.resolve(raw)
         backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
-            self._args(rolling_window=True), p
+            self._args(portfolio=raw, rolling_window=True)
         )
         err = capsys.readouterr().err
         assert "WARNING" in err
 
     def test_warns_on_custom_with_efficient_frontier(self, capsys):
         raw = '{"name":"Toy","assets":[{"key":"gold","weight":0.5},{"key":"cash","weight":0.5}]}'
-        p = Portfolio.resolve(raw)
         backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
-            self._args(efficient_frontier=True), p
+            self._args(portfolio=raw, efficient_frontier=True)
         )
         err = capsys.readouterr().err
         assert "WARNING" in err
+
+    def test_custom_name_spoofing_still_warns(self, capsys):
+        """Regression: a custom preset that sets name='Four Umbrellas' but is
+        passed via inline JSON must STILL trigger the warning — detection is
+        from the CLI spec, not the display name."""
+        spoofed = '{"name":"Four Umbrellas","assets":[{"key":"gold","weight":1.0}]}'
+        backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
+            self._args(portfolio=spoofed, sensitivity="gold")
+        )
+        assert "WARNING" in capsys.readouterr().err
+
+
+class TestIsDefaultPortfolioSpec:
+    def test_none_is_default(self):
+        assert backtest_mod._is_default_portfolio_spec(None) is True
+
+    def test_name_is_default(self):
+        assert backtest_mod._is_default_portfolio_spec("four_umbrellas") is True
+
+    def test_explicit_path_to_default(self):
+        path = str(PROJECT_ROOT / "portfolios" / "four_umbrellas.toml")
+        assert backtest_mod._is_default_portfolio_spec(path) is True
+
+    def test_other_name_is_custom(self):
+        assert backtest_mod._is_default_portfolio_spec("my_strategy") is False
+
+    def test_other_toml_is_custom(self):
+        assert backtest_mod._is_default_portfolio_spec("portfolios/other.toml") is False
+
+    def test_inline_json_is_custom(self):
+        assert backtest_mod._is_default_portfolio_spec('{"name":"X","assets":[]}') is False
+
+
+class TestResolveBadToml:
+    def test_malformed_toml_exits_2(self, tmp_path, capsys):
+        """Regression for Copilot review: a corrupted preset file must exit 2
+        with a clean error message, not a TOMLDecodeError traceback."""
+        bad = tmp_path / "bad.toml"
+        bad.write_text("this is [not = valid[ toml", encoding="utf-8")
+        with pytest.raises(SystemExit) as ei:
+            backtest_mod._resolve_portfolio_or_exit(str(bad))
+        assert ei.value.code == 2
+        err = capsys.readouterr().err
+        assert "ERROR loading portfolio spec" in err
 
 
 class TestParseArgsNewFlags:

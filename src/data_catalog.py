@@ -15,9 +15,9 @@ fields as ``None`` (not an error — the asset is simply "not downloaded yet").
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import pandas as pd
 

@@ -14,7 +14,7 @@ import pandas as pd
 
 from .portfolio import (
     WEIGHTS, EQUITY, CRYPTO, BONDS, EM_SATELLITES, PENSION,
-    TER_ANNUAL, SYMBOL_MAP, REBALANCE,
+    TER_ANNUAL, REBALANCE,
 )
 from .portfolio_model import AssetAllocation, Portfolio
 
