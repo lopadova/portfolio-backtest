@@ -39,7 +39,9 @@ import streamlit as st
 
 from src.dashboard_helpers import (
     build_portfolio_from_ui_state,
+    common_history_years,
     compute_effective_start,
+    fire_config_from_ui_state,
     format_asset_start_date,
 )
 from src.data_catalog import (
@@ -50,9 +52,27 @@ from src.data_catalog import (
     load_catalog,
 )
 from src.data_loader import load_data
+from src.efficient_frontier import (
+    plot_efficient_frontier,
+    plot_efficient_frontier_interactive,
+    run_efficient_frontier,
+)
+from src.fire import (
+    aggregate_fire_results,
+    plot_fire_failure_distribution,
+    plot_fire_legacy_distribution,
+    plot_fire_projection,
+    plot_fire_success_probability,
+    run_fire_simulation,
+)
 from src.metrics import compute_all, crisis_drawdown, cumulative_wealth, stats_to_dataframe
 from src.monte_carlo import block_bootstrap, compute_mc_stats, simulate_wealth_paths
 from src.options_overlay import simulate_options_overlay
+from src.rolling_window import (
+    plot_rolling_window_results,
+    run_rolling_backtest,
+    summary_statistics as rolling_summary_statistics,
+)
 from src.plots import (
     plot_annual_returns,
     plot_crisis_zoom,
@@ -129,6 +149,32 @@ def _ensure_session_defaults() -> None:
         "mc_paths": 5000,
         "mc_years": 20,
         "mc_block_size": 3,
+        # PR5 — advanced analysis toggles + per-analysis config
+        "frontier_enabled": False,
+        "frontier_n_random": 10_000,
+        "fire_enabled": False,
+        "fire_current_age": 45,
+        "fire_sex": "M",
+        "fire_fixed_end_age": 0,               # 0 = unset (handled by the helper)
+        "fire_initial_capital": 100_000.0,
+        "fire_contribution_amount": 1_000.0,
+        "fire_contribution_frequency": "month",
+        "fire_fire_age": 60,
+        "fire_monthly_spending": 2_500.0,
+        "fire_inflation_rate": 0.02,
+        "fire_pension_enabled": False,
+        "fire_pension_monthly_amount": 1_500.0,
+        "fire_pension_start_age": 67,
+        "fire_pension_revaluation": 0.75,
+        "fire_tax_on_withdrawals": False,
+        "fire_tax_rate": 0.26,
+        "fire_n_simulations": 1000,
+        "fire_block_size": 3,
+        "fire_seed": 42,
+        "walkforward_enabled": False,
+        "walkforward_window_years": 10,
+        "walkforward_step_months": 12,
+        # Other
         "selected_benchmarks": ["60/40", "100% SWDA (MSCI World EUR)"],
         "save_results": False,
         "last_run": None,
@@ -170,9 +216,19 @@ _ensure_session_defaults()
 
 # Tab labels built dynamically: Impostazioni first, then the post-run tabs
 # that are always "visible" (empty info panel if no run yet).
-tab_settings, tab_summary, tab_charts, tab_mc, tab_ai = st.tabs(
-    ["⚙️ Impostazioni", "📊 Summary", "📈 Charts", "🎲 Monte Carlo", "🤖 AI Analysis"]
-)
+(
+    tab_settings, tab_summary, tab_charts, tab_mc,
+    tab_frontier, tab_fire, tab_walkforward, tab_ai,
+) = st.tabs([
+    "⚙️ Impostazioni",
+    "📊 Summary",
+    "📈 Charts",
+    "🎲 Monte Carlo",
+    "📐 Efficient Frontier",
+    "🔥 FIRE",
+    "🌀 Simulazione storica",
+    "🤖 AI Analysis",
+])
 
 
 # ===========================================================================
@@ -450,10 +506,179 @@ with tab_settings:
             disabled=not st.session_state["mc_enabled"],
         )
 
-    # Placeholder toggles — PR5 wires the corresponding tabs
-    st.checkbox("Efficient Frontier 🔒 (PR5)", value=False, disabled=True)
-    st.checkbox("FIRE calculator 🔒 (PR5)", value=False, disabled=True)
-    st.checkbox("Simulazione storica (walk-forward) 🔒 (PR5)", value=False, disabled=True)
+    # --- Efficient Frontier ------------------------------------------------
+    st.session_state["frontier_enabled"] = st.checkbox(
+        "Efficient Frontier",
+        value=st.session_state["frontier_enabled"],
+        help=(
+            "Markowitz mean-variance optimization + Dirichlet-sampled random "
+            "portfolios restricted to the ASSETS of your portfolio (cash "
+            "excluded)."
+        ),
+    )
+    st.session_state["frontier_n_random"] = st.number_input(
+        "Random portfolios",
+        min_value=500, max_value=50_000,
+        value=int(st.session_state["frontier_n_random"]),
+        step=1000,
+        disabled=not st.session_state["frontier_enabled"],
+        help="UI default is 10k for responsiveness; CLI still defaults to 50k.",
+    )
+
+    # --- FIRE --------------------------------------------------------------
+    st.session_state["fire_enabled"] = st.checkbox(
+        "FIRE calculator",
+        value=st.session_state["fire_enabled"],
+        help=(
+            "Monte Carlo FIRE simulator with Italian mortality sampling and "
+            "optional pension / CGT on withdrawals. Uses the main portfolio's "
+            "return series as the underlying."
+        ),
+    )
+    if st.session_state["fire_enabled"]:
+        with st.expander("FIRE parameters", expanded=True):
+            # Personal
+            c_age, c_sex, c_end = st.columns(3)
+            with c_age:
+                st.session_state["fire_current_age"] = st.number_input(
+                    "Età attuale", min_value=18, max_value=100,
+                    value=int(st.session_state["fire_current_age"]),
+                )
+            with c_sex:
+                st.session_state["fire_sex"] = st.radio(
+                    "Sesso", ["M", "F"],
+                    index=0 if st.session_state["fire_sex"] == "M" else 1,
+                    horizontal=True,
+                )
+            with c_end:
+                st.session_state["fire_fixed_end_age"] = st.number_input(
+                    "Fixed end age (0 = mortality)", min_value=0, max_value=120,
+                    value=int(st.session_state["fire_fixed_end_age"]),
+                    help="0 = sample from ISTAT mortality table. Any value >0 forces that as the end age.",
+                )
+
+            # Wealth + contributions
+            c_cap, c_contr, c_freq = st.columns(3)
+            with c_cap:
+                st.session_state["fire_initial_capital"] = st.number_input(
+                    "Capitale iniziale (€)", min_value=0.0, step=10_000.0,
+                    value=float(st.session_state["fire_initial_capital"]),
+                )
+            with c_contr:
+                st.session_state["fire_contribution_amount"] = st.number_input(
+                    "Contributo periodico (€)", min_value=0.0, step=100.0,
+                    value=float(st.session_state["fire_contribution_amount"]),
+                )
+            with c_freq:
+                st.session_state["fire_contribution_frequency"] = st.radio(
+                    "Frequenza contributo",
+                    ["month", "year"],
+                    index=0 if st.session_state["fire_contribution_frequency"] == "month" else 1,
+                    horizontal=True,
+                )
+
+            # Objective
+            c_fire, c_spend, c_infl = st.columns(3)
+            with c_fire:
+                st.session_state["fire_fire_age"] = st.number_input(
+                    "FIRE age", min_value=20, max_value=120,
+                    value=int(st.session_state["fire_fire_age"]),
+                )
+            with c_spend:
+                st.session_state["fire_monthly_spending"] = st.number_input(
+                    "Spesa mensile post-FIRE (€)", min_value=0.0, step=100.0,
+                    value=float(st.session_state["fire_monthly_spending"]),
+                )
+            with c_infl:
+                st.session_state["fire_inflation_rate"] = st.number_input(
+                    "Inflazione annua", min_value=0.0, max_value=0.25, step=0.005,
+                    value=float(st.session_state["fire_inflation_rate"]),
+                    format="%.3f",
+                )
+
+            # Pension
+            st.session_state["fire_pension_enabled"] = st.checkbox(
+                "Pensione attiva",
+                value=st.session_state["fire_pension_enabled"],
+            )
+            if st.session_state["fire_pension_enabled"]:
+                c_pamt, c_page, c_prev = st.columns(3)
+                with c_pamt:
+                    st.session_state["fire_pension_monthly_amount"] = st.number_input(
+                        "Pensione mensile (€)", min_value=0.0, step=50.0,
+                        value=float(st.session_state["fire_pension_monthly_amount"]),
+                    )
+                with c_page:
+                    st.session_state["fire_pension_start_age"] = st.number_input(
+                        "Età inizio pensione", min_value=40, max_value=80,
+                        value=int(st.session_state["fire_pension_start_age"]),
+                    )
+                with c_prev:
+                    st.session_state["fire_pension_revaluation"] = st.slider(
+                        "Rivalutazione INPS (frazione)", min_value=0.0, max_value=1.0,
+                        value=float(st.session_state["fire_pension_revaluation"]),
+                        step=0.05,
+                        help="1.0 = full inflation match (100% INPS perequazione); 0.75 = 75%.",
+                    )
+
+            # Tax
+            c_tax_on, c_tax_r = st.columns(2)
+            with c_tax_on:
+                st.session_state["fire_tax_on_withdrawals"] = st.checkbox(
+                    "CGT sui prelievi",
+                    value=st.session_state["fire_tax_on_withdrawals"],
+                )
+            with c_tax_r:
+                st.session_state["fire_tax_rate"] = st.number_input(
+                    "Aliquota (frazione)", min_value=0.0, max_value=1.0, step=0.01,
+                    value=float(st.session_state["fire_tax_rate"]),
+                    format="%.2f",
+                    disabled=not st.session_state["fire_tax_on_withdrawals"],
+                )
+
+            # Simulation
+            c_n, c_blk, c_seed = st.columns(3)
+            with c_n:
+                st.session_state["fire_n_simulations"] = st.number_input(
+                    "N simulations", min_value=100, max_value=10_000,
+                    value=int(st.session_state["fire_n_simulations"]),
+                    step=100,
+                )
+            with c_blk:
+                st.session_state["fire_block_size"] = st.number_input(
+                    "Block size (mesi)", min_value=1, max_value=24,
+                    value=int(st.session_state["fire_block_size"]),
+                )
+            with c_seed:
+                st.session_state["fire_seed"] = st.number_input(
+                    "Seed", min_value=0, max_value=2_147_483_647,
+                    value=int(st.session_state["fire_seed"]),
+                )
+
+    # --- Walk-forward (Simulazione Ongaro) ---------------------------------
+    st.session_state["walkforward_enabled"] = st.checkbox(
+        "Simulazione storica (walk-forward / Ongaro)",
+        value=st.session_state["walkforward_enabled"],
+        help=(
+            "Rolls a fixed-size window across the history, simulating the "
+            "portfolio on each window. Requires ≥ 20 years of common history "
+            "across all portfolio assets — otherwise the run is skipped with "
+            "a warning."
+        ),
+    )
+    c_ww, c_ws = st.columns(2)
+    with c_ww:
+        st.session_state["walkforward_window_years"] = st.number_input(
+            "Window (anni)", min_value=1, max_value=30,
+            value=int(st.session_state["walkforward_window_years"]),
+            disabled=not st.session_state["walkforward_enabled"],
+        )
+    with c_ws:
+        st.session_state["walkforward_step_months"] = st.number_input(
+            "Step (mesi)", min_value=1, max_value=60,
+            value=int(st.session_state["walkforward_step_months"]),
+            disabled=not st.session_state["walkforward_enabled"],
+        )
 
     # Benchmarks
     st.session_state["selected_benchmarks"] = st.multiselect(
@@ -574,6 +799,61 @@ if run_btn:
                 wealth_paths, n_months=int(st.session_state["mc_years"]) * 12,
             )
 
+        # --- PR5 advanced analyses (conditional on toggles) ----------------
+
+        frontier_result = None
+        if st.session_state["frontier_enabled"]:
+            with st.spinner("Computing efficient frontier..."):
+                frontier_result = run_efficient_frontier(
+                    bundle_sliced,
+                    portfolio=user_portfolio,
+                    n_random=int(st.session_state["frontier_n_random"]),
+                )
+
+        fire_result = None
+        fire_error = None
+        if st.session_state["fire_enabled"]:
+            try:
+                fire_config = fire_config_from_ui_state(st.session_state)
+                with st.spinner(f"Running {fire_config.n_simulations} FIRE simulations..."):
+                    main_name = (
+                        user_portfolio.name if user_portfolio.name in returns_dict
+                        else f"{user_portfolio.name} (no options)"
+                    )
+                    fire_portfolio_returns = returns_dict[main_name]
+                    fire_sims = run_fire_simulation(fire_config, fire_portfolio_returns)
+                    fire_summary = aggregate_fire_results(fire_sims, fire_config)
+                    fire_result = (fire_sims, fire_summary, fire_config)
+            except ValueError as e:
+                fire_error = str(e)
+
+        walkforward_result = None
+        walkforward_skipped_reason = None
+        if st.session_state["walkforward_enabled"]:
+            window_years = int(st.session_state["walkforward_window_years"])
+            # Gate: walk-forward needs ≥ window_years of common asset history
+            # (20 is the classic "Ongaro" threshold — surfaced to the user when
+            # the configured window requires more than we have).
+            available_years = common_history_years(bundle_sliced, user_portfolio, catalog)
+            if available_years < window_years:
+                walkforward_skipped_reason = (
+                    f"Storico insufficiente: {available_years:.1f} anni di storia comune "
+                    f"tra gli asset del portafoglio, servono almeno {window_years}. "
+                    f"La simulazione storica non è stata eseguita."
+                )
+            else:
+                with st.spinner(
+                    f"Running {window_years}-year walk-forward (step {st.session_state['walkforward_step_months']} months)..."
+                ):
+                    wf_df = run_rolling_backtest(
+                        bundle_sliced,
+                        portfolio=user_portfolio,
+                        window_years=window_years,
+                        step_months=int(st.session_state["walkforward_step_months"]),
+                    )
+                    wf_stats = rolling_summary_statistics(wf_df)
+                    walkforward_result = (wf_df, wf_stats, window_years)
+
     # Output directory: ephemeral tempdir unless user ticked Save
     _tempdir_key = "_dashboard_tempdir"
     existing_tempdir = st.session_state.get(_tempdir_key)
@@ -610,6 +890,12 @@ if run_btn:
         "output_dir": output_dir,
         "start_nav": st.session_state["start_nav"],
         "mc_years": int(st.session_state["mc_years"]),
+        # PR5 — advanced analyses (None when toggle was off)
+        "frontier_result": frontier_result,
+        "fire_result": fire_result,
+        "fire_error": fire_error,
+        "walkforward_result": walkforward_result,
+        "walkforward_skipped_reason": walkforward_skipped_reason,
     }
 
     # Save full report if requested
@@ -730,6 +1016,161 @@ with tab_mc:
             fan_img, start_nav=start_nav,
         )
         st.image(str(fan_img), use_container_width=True)
+
+
+with tab_frontier:
+    if last_run is None or last_run.get("frontier_result") is None:
+        st.info(
+            "Efficient Frontier non attivato. Abilitalo nel tab **Impostazioni → "
+            "🎲 Analisi avanzate** e rilancia il backtest."
+        )
+    else:
+        (
+            random_eval_df, weights_matrix, key_portfolios,
+            frontier_df, ref_point, asset_names,
+        ) = last_run["frontier_result"]
+        output_dir = last_run["output_dir"]
+
+        st.subheader(f"Efficient Frontier — universo {last_run['portfolio'].name}")
+        st.caption(
+            f"{len(random_eval_df):,} random portfolios + Markowitz frontier, "
+            f"su {len(asset_names)} asset (cash esclusa)."
+        )
+
+        # Static PNG (matplotlib)
+        frontier_png = output_dir / "efficient_frontier.png"
+        plot_efficient_frontier(
+            random_eval_df, key_portfolios, frontier_df, ref_point, frontier_png,
+        )
+        st.image(str(frontier_png), use_container_width=True)
+
+        # Interactive HTML (Plotly) — inline if plotly is installed
+        frontier_html = output_dir / "efficient_frontier_interactive.html"
+        if plot_efficient_frontier_interactive(
+            random_eval_df, weights_matrix, asset_names,
+            key_portfolios, frontier_df, ref_point, frontier_html,
+        ):
+            with st.expander("Interactive Plotly chart (hover/click for allocations)"):
+                st.components.v1.html(
+                    frontier_html.read_text(encoding="utf-8"),
+                    height=740, scrolling=True,
+                )
+
+        # Key portfolios table
+        rows = []
+        for key, point in key_portfolios.items():
+            rows.append({
+                "Portfolio": point.label,
+                "Return (annualized)": f"{point.expected_return * 100:.2f}%",
+                "Volatility": f"{point.volatility * 100:.2f}%",
+                "Sharpe": f"{point.sharpe:.3f}",
+            })
+        if ref_point is not None:
+            rows.append({
+                "Portfolio": ref_point.label,
+                "Return (annualized)": f"{ref_point.expected_return * 100:.2f}%",
+                "Volatility": f"{ref_point.volatility * 100:.2f}%",
+                "Sharpe": f"{ref_point.sharpe:.3f}",
+            })
+        st.subheader("Key portfolios on the frontier")
+        st.dataframe(pd.DataFrame(rows).set_index("Portfolio"), use_container_width=True)
+
+
+with tab_fire:
+    if last_run is None or (last_run.get("fire_result") is None and not last_run.get("fire_error")):
+        st.info(
+            "FIRE calculator non attivato. Abilitalo nel tab **Impostazioni → "
+            "🎲 Analisi avanzate** e configura i parametri."
+        )
+    elif last_run.get("fire_error"):
+        st.error(f"FIRE configuration error: {last_run['fire_error']}")
+    else:
+        fire_sims, fire_summary, fire_config = last_run["fire_result"]
+        output_dir = last_run["output_dir"]
+
+        st.subheader(f"FIRE Monte Carlo — {fire_summary.n_simulations:,} simulations")
+
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Success probability", f"{fire_summary.probability_success:.1%}")
+        m2.metric("Median survival age", f"{fire_summary.median_survival_age}")
+        m3.metric("Median legacy (nominal)", f"€{fire_summary.median_legacy_nominal:,.0f}")
+        m4.metric("Median legacy (real)", f"€{fire_summary.median_legacy_real:,.0f}")
+        m5.metric(
+            "Worst failure age",
+            f"{fire_summary.worst_case_failure_age}" if fire_summary.worst_case_failure_age else "—",
+        )
+
+        # 4 charts — generate once to the output_dir and display
+        proj_png = output_dir / "fire_projection.png"
+        success_png = output_dir / "fire_success_probability.png"
+        failure_png = output_dir / "fire_failure_distribution.png"
+        legacy_png = output_dir / "fire_legacy_distribution.png"
+
+        plot_fire_projection(fire_summary, fire_config, proj_png)
+        plot_fire_success_probability(fire_sims, fire_config, success_png)
+        plot_fire_failure_distribution(fire_sims, failure_png)
+        plot_fire_legacy_distribution(fire_sims, legacy_png)
+
+        st.subheader("Portfolio projection (percentile bands)")
+        st.image(str(proj_png), use_container_width=True)
+
+        st.subheader("Success probability by age")
+        st.image(str(success_png), use_container_width=True)
+
+        c_fail, c_leg = st.columns(2)
+        with c_fail:
+            st.subheader("Failure age distribution")
+            st.image(str(failure_png), use_container_width=True)
+        with c_leg:
+            st.subheader("Legacy distribution (nominal vs real)")
+            st.image(str(legacy_png), use_container_width=True)
+
+
+with tab_walkforward:
+    if last_run is None or (
+        last_run.get("walkforward_result") is None
+        and not last_run.get("walkforward_skipped_reason")
+    ):
+        st.info(
+            "Simulazione storica non attivata. Abilitala nel tab **Impostazioni "
+            "→ 🎲 Analisi avanzate** e rilancia il backtest."
+        )
+    elif last_run.get("walkforward_skipped_reason"):
+        st.warning(f"⚠️ {last_run['walkforward_skipped_reason']}")
+        st.caption(
+            "Il gating richiede almeno `window_years` di storia condivisa tra "
+            "tutti gli asset (cash esclusa). Riduci la finestra o costruisci un "
+            "portafoglio con asset più longevi."
+        )
+    else:
+        wf_df, wf_stats, window_years = last_run["walkforward_result"]
+        output_dir = last_run["output_dir"]
+
+        st.subheader(f"Walk-forward {window_years}-year backtest")
+        st.caption(f"{len(wf_df)} windows across the configured period.")
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("CAGR median", f"{wf_stats['cagr_median']:.2%}",
+                  f"worst {wf_stats['cagr_worst']:.2%}")
+        m2.metric("Max DD median", f"{wf_stats['maxdd_median']:.2%}",
+                  f"worst {wf_stats['maxdd_worst']:.2%}")
+        m3.metric("Sharpe median", f"{wf_stats['sharpe_median']:.2f}",
+                  f"worst {wf_stats['sharpe_worst']:.2f}")
+
+        st.caption(
+            f"{wf_stats['pct_windows_positive_cagr']:.1%} di windows con CAGR positivo · "
+            f"{wf_stats['pct_windows_cagr_above_4pct']:.1%} con CAGR > 4%"
+        )
+
+        wf_png = output_dir / f"walkforward_{window_years}y.png"
+        plot_rolling_window_results(
+            wf_df, window_years, wf_png,
+            step_months=int(st.session_state["walkforward_step_months"]),
+        )
+        st.image(str(wf_png), use_container_width=True)
+
+        with st.expander("Per-window raw results"):
+            st.dataframe(wf_df, use_container_width=True)
 
 
 with tab_ai:
