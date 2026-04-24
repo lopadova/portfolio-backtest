@@ -388,3 +388,141 @@ class TestOptionsConfigRoundTrip:
         )
         with pytest.raises(ValueError, match="must be a TOML table"):
             Portfolio.from_toml(path)
+
+
+class TestOptionsConfigStrictTypes:
+    """Post-Copilot-PR21 hardening: dataclasses.replace doesn't enforce
+    type annotations, so the parser must coerce + validate per field
+    (Theme 17 LESSONS.md — docstring promised ValueError on wrong types,
+    delivery enforces it)."""
+
+    def _toml_with_options(self, line: str) -> str:
+        return (
+            'name = "X"\n'
+            'options_overlay = false\n'
+            'rebalance_months = [1, 7]\n'
+            'transaction_cost_bps = 20.0\n'
+            '\n'
+            '[[assets]]\n'
+            'key = "gold"\n'
+            'weight = 1.0\n'
+            '\n'
+            '[options]\n'
+            f"{line}\n"
+        )
+
+    def test_string_for_float_field_rejected(self, tmp_path):
+        path = tmp_path / "bad.toml"
+        path.write_text(
+            self._toml_with_options('budget_nav_per_year = "0.003"'),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="budget_nav_per_year.*must be a number"):
+            Portfolio.from_toml(path)
+
+    def test_string_for_int_field_rejected(self, tmp_path):
+        path = tmp_path / "bad.toml"
+        path.write_text(
+            self._toml_with_options('tenor_months = "6"'),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="tenor_months.*must be an integer"):
+            Portfolio.from_toml(path)
+
+    def test_bool_for_int_field_rejected(self, tmp_path):
+        """bool is an int subclass in Python — explicitly reject so
+        ``tenor_months = true`` doesn't silently become ``1``."""
+        path = tmp_path / "bad.toml"
+        path.write_text(
+            self._toml_with_options("tenor_months = true"),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="tenor_months.*must be an integer"):
+            Portfolio.from_toml(path)
+
+    def test_float_for_int_field_rejected(self, tmp_path):
+        """A float where an int is expected should fail loudly."""
+        path = tmp_path / "bad.toml"
+        path.write_text(
+            self._toml_with_options("tenor_months = 6.5"),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="tenor_months.*must be an integer"):
+            Portfolio.from_toml(path)
+
+    def test_int_for_float_field_accepted_and_coerced(self, tmp_path):
+        """Conversely, an int where a float is expected is fine — TOML
+        users naturally write `1` for `1.0`. Coerced silently."""
+        path = tmp_path / "p.toml"
+        path.write_text(
+            self._toml_with_options("hedge_ratio_of_equity = 1"),
+            encoding="utf-8",
+        )
+        loaded = Portfolio.from_toml(path)
+        assert loaded.options_config.hedge_ratio_of_equity == 1.0
+        assert isinstance(loaded.options_config.hedge_ratio_of_equity, float)
+
+    def test_spy_qqq_split_wrong_length(self, tmp_path):
+        path = tmp_path / "bad.toml"
+        path.write_text(
+            self._toml_with_options("spy_qqq_split = [0.5, 0.3, 0.2]"),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="spy_qqq_split.*2-element list"):
+            Portfolio.from_toml(path)
+
+    def test_spy_qqq_split_non_numeric(self, tmp_path):
+        path = tmp_path / "bad.toml"
+        path.write_text(
+            self._toml_with_options('spy_qqq_split = ["a", "b"]'),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="spy_qqq_split.*must be numeric"):
+            Portfolio.from_toml(path)
+
+
+class TestOptionsConfigEnabledRejected:
+    """Post-Copilot-PR21: ``enabled`` lives on Portfolio.options_overlay
+    (the runtime switch the engine actually reads). Allowing it inside
+    [options] would let users save a preset where 'enabled = false' has
+    zero effect — confusing, hard to debug. The parser refuses it."""
+
+    def test_enabled_field_rejected(self, tmp_path):
+        path = tmp_path / "bad.toml"
+        path.write_text(
+            'name = "X"\n'
+            'options_overlay = true\n'
+            'rebalance_months = [1, 7]\n'
+            'transaction_cost_bps = 20.0\n'
+            '\n'
+            '[[assets]]\n'
+            'key = "gold"\n'
+            'weight = 1.0\n'
+            '\n'
+            '[options]\n'
+            'enabled = false\n',
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="'enabled' is not allowed"):
+            Portfolio.from_toml(path)
+
+    def test_enabled_not_emitted_even_when_non_default(self, tmp_path):
+        """Round-trip safety: an OptionsConfig with enabled=False (different
+        from default True) must NOT emit ``enabled`` into the TOML — the
+        parser would reject the resulting file. Better to silently drop
+        the field at write-time than write something we can't read back."""
+        from src.portfolio import OptionsConfig
+
+        cfg = OptionsConfig(enabled=False, budget_nav_per_year=0.005)
+        p = Portfolio(
+            name="X",
+            assets=[AssetAllocation("gold", 1.0)],
+            options_config=cfg,
+        )
+        path = tmp_path / "p.toml"
+        p.save_to(path)
+        text = path.read_text(encoding="utf-8")
+        assert "enabled" not in text
+        # Round-trip succeeds because the bad field was filtered at emit
+        loaded = Portfolio.from_toml(path)
+        assert loaded.options_config.budget_nav_per_year == 0.005

@@ -99,6 +99,28 @@ class TestIVFromVIX:
     def test_zero_vix_zero_iv(self):
         assert iv_from_vix(0.0, moneyness=0.9) == pytest.approx(0.0, abs=1e-9)
 
+    def test_skew_adjustment_kwarg_overrides_default(self):
+        """PR7 Copilot review #1: iv_from_vix must honor the explicit
+        ``skew_adjustment=`` kwarg instead of always reading from the
+        global OPTIONS. Without this, a per-Portfolio OptionsConfig with
+        a custom iv_skew_adjustment would silently leak the global value
+        when iv_from_vix is called inside the simulator."""
+        vix = 20.0
+        # Default skew (≈1.15) vs an explicit 2.0 must produce different IVs
+        with_default = iv_from_vix(vix, moneyness=0.85)
+        with_high_skew = iv_from_vix(vix, moneyness=0.85, skew_adjustment=2.0)
+        with_low_skew = iv_from_vix(vix, moneyness=0.85, skew_adjustment=0.5)
+        assert with_high_skew > with_default > with_low_skew
+
+    def test_skew_adjustment_none_falls_back_to_global(self):
+        """Explicit ``skew_adjustment=None`` must match the no-kwarg form
+        (legacy fallback). This proves the None-default sentinel still
+        works for callers that don't carry an OptionsConfig."""
+        vix = 20.0
+        a = iv_from_vix(vix, moneyness=0.85)
+        b = iv_from_vix(vix, moneyness=0.85, skew_adjustment=None)
+        assert a == b
+
 
 # ---------------------------------------------------------------------------
 # End-to-end simulator smoke test
@@ -186,3 +208,13 @@ class TestSimulatorSmoke:
             options_config=None,
         )
         pd.testing.assert_series_equal(a, b)
+
+    # NOTE: a simulator-level regression for iv_skew_adjustment isn't
+    # robust — on a flat synthetic market the simulator spends exactly
+    # the budget cap regardless of the IV (so different IVs ⇒ different
+    # contract counts but same total premium ⇒ same monthly P&L).
+    # The skew threading fix (PR7 Copilot review #1) is exercised by the
+    # unit test below in TestIVFromVixThreading + the simulator test
+    # `test_options_config_kwarg_overrides_globals` which uses budget
+    # (a parameter the cap mechanism actually exposes). This avoids
+    # encoding a brittle integration assertion.

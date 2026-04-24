@@ -21,6 +21,7 @@ Outputs:
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Optional
@@ -263,14 +264,26 @@ def aggregate_fire_results(
                 wealth_matrix[i, j] = r.final_wealth_nominal if j * 12 <= (r.death_age - config.current_age) * 12 else np.nan
             else:
                 wealth_matrix[i, j] = np.nan
-    percentiles_df = pd.DataFrame({
-        "age": ages,
-        "p5":  np.nanpercentile(wealth_matrix, 5, axis=0),
-        "p25": np.nanpercentile(wealth_matrix, 25, axis=0),
-        "p50": np.nanpercentile(wealth_matrix, 50, axis=0),
-        "p75": np.nanpercentile(wealth_matrix, 75, axis=0),
-        "p95": np.nanpercentile(wealth_matrix, 95, axis=0),
-    }).set_index("age")
+    # nanpercentile emits "All-NaN slice encountered" RuntimeWarning when a
+    # column (age) has zero live simulations — typically beyond the oldest
+    # mortality-sample death age. The result for those columns is NaN,
+    # which is exactly what we want for the percentile bands chart (no
+    # data to plot past that age). Silence the warning on the expected
+    # cause; any other RuntimeWarning still propagates.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="All-NaN slice encountered",
+            category=RuntimeWarning,
+        )
+        percentiles_df = pd.DataFrame({
+            "age": ages,
+            "p5":  np.nanpercentile(wealth_matrix, 5, axis=0),
+            "p25": np.nanpercentile(wealth_matrix, 25, axis=0),
+            "p50": np.nanpercentile(wealth_matrix, 50, axis=0),
+            "p75": np.nanpercentile(wealth_matrix, 75, axis=0),
+            "p95": np.nanpercentile(wealth_matrix, 95, axis=0),
+        }).set_index("age")
 
     return FireSummary(
         n_simulations=n,

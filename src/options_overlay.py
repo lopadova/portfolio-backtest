@@ -59,7 +59,7 @@ def bs_put_spread_price(
 # Implied vol — VIX + skew adjustment
 # ============================================================================
 
-def iv_from_vix(vix: float, moneyness: float, skew_adjustment: float = None) -> float:
+def iv_from_vix(vix: float, moneyness: float, skew_adjustment: Optional[float] = None) -> float:
     """
     Approximate the implied vol for an OTM put at the given moneyness
     (K / S, typically < 1.0) from the VIX.
@@ -68,6 +68,12 @@ def iv_from_vix(vix: float, moneyness: float, skew_adjustment: float = None) -> 
 
     For the portfolio's strikes (K/S ≈ 0.87 and 0.70), OTM put IV is typically
     15-25% higher than ATM IV due to the well-documented volatility skew.
+
+    PR7: ``skew_adjustment`` defaults to ``OPTIONS.iv_skew_adjustment`` only
+    when the caller passes ``None`` — callers who carry a per-Portfolio
+    ``OptionsConfig`` should pass ``cfg.iv_skew_adjustment`` explicitly so
+    the override fully replaces the globals (otherwise this fallback would
+    silently leak the global value back into a per-portfolio call).
     """
     if skew_adjustment is None:
         skew_adjustment = OPTIONS.iv_skew_adjustment
@@ -154,7 +160,7 @@ def simulate_options_overlay(
                 continue
             spot = spy if p.underlying == "SPY" else qqq
             moneyness_long = p.K_long / spot
-            iv = iv_from_vix(vix, moneyness_long)
+            iv = iv_from_vix(vix, moneyness_long, skew_adjustment=cfg.iv_skew_adjustment)
             current_value = bs_put_spread_price(spot, p.K_long, p.K_short, T, rf, iv)
             ratio = current_value / p.premium_paid if p.premium_paid > 0 else 0.0
             # Take-profit 2×: close 50% if not already done
@@ -207,7 +213,7 @@ def simulate_options_overlay(
                 K_long = spot * cfg.long_strike_pct
                 K_short = spot * cfg.short_strike_pct
                 T = cfg.tenor_months / 12.0
-                iv = iv_from_vix(vix, cfg.long_strike_pct)
+                iv = iv_from_vix(vix, cfg.long_strike_pct, skew_adjustment=cfg.iv_skew_adjustment)
                 premium_per_unit = bs_put_spread_price(spot, K_long, K_short, T, rf, iv)
                 premium_per_contract_cash = premium_per_unit * 100.0 + commission  # 100 shares per contract + commission
                 if premium_per_contract_cash <= 0:

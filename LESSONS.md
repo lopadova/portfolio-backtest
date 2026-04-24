@@ -217,6 +217,36 @@ When a UI offers a fixed set of choices (radio buttons, dropdowns) but the under
 
 ---
 
+## Theme 21 — When you decouple a global, audit EVERY transitive caller
+
+A successful "remove the global" refactor isn't `cfg = override or GLOBAL` at the entry point — it's making sure no helper reached at any call depth still reads the global directly. Easy to miss because the entry point looks clean.
+
+- PR #21 (PR7). `simulate_options_overlay(options_config=...)` correctly used the override at every `cfg.<field>` reference inside its own body. But the helper `iv_from_vix(vix, moneyness, skew_adjustment=None)` had a `skew_adjustment = OPTIONS.iv_skew_adjustment` fallback when `None`, AND the simulator called `iv_from_vix(vix, moneyness_long)` without passing `cfg.iv_skew_adjustment` through — so a per-Portfolio override silently leaked the global value back in. **Fix**: thread `cfg.iv_skew_adjustment` explicitly into both `iv_from_vix` callsites inside the simulator. Updated docstring to warn future callers.
+
+**Candidate rule**: when a function is decoupled from a global, grep the codebase for the global symbol and verify every reference is either (a) inside the function being decoupled (already handled), (b) passed an explicit override at the callsite, or (c) deliberate fallback inside a tagged helper. The pattern that bites is "shared utility helper with a None-default that reads the global" — those are invisible until tested directly.
+
+---
+
+## Theme 22 — `dataclasses.replace` does NOT enforce type annotations
+
+The dataclass machinery treats annotations as documentation: passing the wrong type to `dataclasses.replace(...)` succeeds and the wrong-typed value lives on the dataclass until something actually tries to use it. For TOML-loaded configs this means a `tenor_months = "6"` string slips into the dataclass and crashes deep inside the engine with a less-actionable error.
+
+- PR #21 (PR7). `_parse_options_section` used `dataclasses.replace(OptionsConfig(), **overrides)` and claimed to validate types. Reality: TOML's `"6"` (string) for `tenor_months` was accepted; the engine then hit `T = max((p.expiry_date - today).days / 365.0, ...)` with a string-derived value and crashed. **Fix**: explicit per-field coercion via `_coerce_options_field(key, value)` with float/int/tuple-of-2 type checks (rejecting `bool`-as-`int` confusion since `bool` is an `int` subclass). Errors name the offending field.
+
+**Candidate rule**: any dataclass loaded from external input (TOML/JSON/env vars) needs per-field type coercion at the parser, not just at the dataclass constructor. Generic helpers like `_coerce_field(spec, key, value)` keyed on a per-dataclass spec table can be reused. Tests must cover the wrong-type-per-allowed-field matrix (string for float, bool for int, list of wrong length, etc.) to encode the contract.
+
+---
+
+## Theme 23 — Don't accept fields whose persisted value has no runtime effect
+
+The most confusing bugs come from preset files where a field looks important but is actually inert. Users save the preset, edit the field, reload, run — and nothing changes. The bug isn't in their edit; it's that the field shouldn't have been writeable in the first place.
+
+- PR #21 (PR7). `OptionsConfig` has an `enabled: bool` field, but the runtime check the engine reads is `Portfolio.options_overlay`. Naively letting the parser accept `[options].enabled = false` would let users save a preset that says "overlay off" while the engine happily runs it because Portfolio.options_overlay is True. **Fix**: explicit allowlist of fields valid in the TOML `[options]` section (`_OPTIONS_ALLOWED_FIELDS` excluding `enabled`). The parser raises `ValueError` with a message pointing at the canonical switch (`Portfolio.options_overlay`). The emitter is symmetric — never writes `enabled` — so a non-default `enabled` doesn't round-trip via TOML at all.
+
+**Candidate rule**: when persisting a dataclass that has both runtime-honored fields and pure-state fields (the latter being shadowed by another switch), separate them in the schema explicitly. Don't rely on "this field exists on the dataclass" as the schema — maintain an allowlist. The allowlist becomes the documentation of what users can persist.
+
+---
+
 ## Theme 16 — Hardcoded product/preset labels leak through when names become data
 
 When a preset's name used to be a hardcoded product name but is now user-configurable, every chart legend / annotation / hover card that built a string around the old hardcoded name needs to switch to the runtime `label` field.
