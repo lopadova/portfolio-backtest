@@ -4,7 +4,6 @@ date slicing, bundle structure.
 """
 
 import pandas as pd
-import pytest
 
 from src.data_loader import (
     load_data,

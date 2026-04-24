@@ -6,7 +6,6 @@ of the portfolio configuration. A PR that breaks one of these tests is
 almost certainly wrong.
 """
 
-import pytest
 
 from src.portfolio import (
     WEIGHTS, EQUITY, CRYPTO, BONDS, EM_SATELLITES, PENSION,

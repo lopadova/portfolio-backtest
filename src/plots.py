@@ -25,7 +25,7 @@ Chart catalog
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict
 
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates

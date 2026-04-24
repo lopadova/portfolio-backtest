@@ -3,9 +3,7 @@ Unit tests for src/options_overlay.py — Black-Scholes pricing, put spread
 payoff, VIX-based implied vol, and the overall simulator.
 """
 
-import math
 
-import numpy as np
 import pandas as pd
 import pytest
 

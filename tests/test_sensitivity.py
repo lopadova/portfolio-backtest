@@ -2,11 +2,9 @@
 Unit tests for src/sensitivity.py — programmatic parameter sweep.
 """
 
-from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")  # non-interactive backend for headless/CI runs
-import numpy as np
 import pandas as pd
 import pytest
 

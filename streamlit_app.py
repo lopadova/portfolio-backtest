@@ -34,7 +34,6 @@ from src.env_check import load_dotenv  # stdlib-only, safe to import first
 
 load_dotenv()
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 

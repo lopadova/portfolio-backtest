@@ -19,7 +19,7 @@ import dataclasses
 import sys
 import tomllib
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict
 
 # Run the environment check BEFORE importing any third-party package —
 # otherwise users who forget to activate the venv get a raw
@@ -33,7 +33,6 @@ require_runtime_deps(
 # is used. Real env vars take precedence; no-op when .env is absent.
 load_dotenv()
 
-import numpy as np
 import pandas as pd
 
 from src.data_loader import load_data, DataBundle
@@ -59,7 +58,7 @@ from src.plots import (
 )
 from src.report import generate_markdown_report
 from src.portfolio import (
-    BENCHMARKS, REFERENCE_NAV_EUR, OPTIONS,
+    BENCHMARKS, REFERENCE_NAV_EUR,
 )
 
 

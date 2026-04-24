@@ -19,7 +19,7 @@ All weights are on total NAV. The structure mirrors the article:
 Every dict in this file is meant to be edited for sensitivity analysis.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, Tuple
 
 

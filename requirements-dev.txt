@@ -5,3 +5,8 @@
 
 pytest>=8.0
 pytest-cov>=5.0
+
+# PR8 — lint hooks (LESSONS Theme 2/19: unused imports detection).
+# Used by .github/workflows/tests.yml `lint` job and the optional
+# .pre-commit-config.yaml. Pinned modestly to keep CI cache stable.
+ruff>=0.6

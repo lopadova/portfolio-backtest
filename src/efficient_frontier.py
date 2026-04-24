@@ -291,7 +291,7 @@ def plot_efficient_frontier_interactive(
     try:
         import plotly.graph_objects as go
     except ImportError:
-        print("  (plotly not installed — skipping interactive frontier. "
+        print("  (plotly not installed -- skipping interactive frontier. "
               "`pip install plotly` to enable.)")
         return False
 
