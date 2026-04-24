@@ -347,12 +347,38 @@ Two caveats on the sensitivity path when a custom portfolio is in use:
 
 - **`--sensitivity options_budget` on a custom portfolio** is not yet
   supported — the options overlay still reads the global `OPTIONS` config;
-  a per-portfolio `OptionsConfig` lands in PR5. Workaround: sweep
-  `options_budget` on the default preset (no `--portfolio`).
+  a per-portfolio `OptionsConfig` is tracked for a later PR. Workaround:
+  sweep `options_budget` on the default preset (no `--portfolio`).
 - **Weight-like params** (`gold`, `dbi`, `put_write`, `nasdaq_top30`,
   `momentum`, `quality`) require the portfolio to contain both a matching
   asset and an explicit `cash` sleeve (the delta is absorbed by cash).
   The error message points at the specific missing piece.
+
+### Save your portfolio for later (PR6)
+
+After a run you can save the portfolio to `portfolios/<slug>.toml` and
+reload it later — either from the CLI or from the Streamlit dashboard.
+
+```bash
+# Save the just-completed run. NAME is slugified (lowercase + '_') so
+# 'My Defensive Strategy' becomes portfolios/my_defensive_strategy.toml.
+python backtest.py --synthetic --portfolio my_strategy --save-as "My Defensive Strategy"
+
+# Collision = exit 2 unless you pass --overwrite.
+python backtest.py --synthetic --save-as "My Defensive Strategy" --overwrite
+
+# List every saved preset with its cached CAGR / Vol / MaxDD / Period.
+python backtest.py --list-portfolios
+```
+
+The saved TOML includes an optional `[metrics]` section with CAGR,
+annualized vol, max drawdown, the simulated period, and a UTC timestamp
+of the run. Reload with `--portfolio my_defensive_strategy` (bare name)
+or via the `📂 Portafogli salvati` tab in the dashboard.
+
+**Protected names**: the shipped `four_umbrellas.toml` preset is
+reserved — the CLI and UI refuse to save/overwrite/delete it. Update it
+only via a repo commit.
 
 ---
 

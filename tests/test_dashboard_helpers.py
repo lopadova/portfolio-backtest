@@ -1,9 +1,9 @@
-"""Tests for the PR4 portfolio-aware helpers in src/dashboard_helpers.py.
+"""Tests for the portfolio-aware helpers in src/dashboard_helpers.py.
 
 These helpers are pure Python (no Streamlit runtime import) so they
 exercise cleanly under pytest. The legacy globals-mutation helpers
-(snapshot/restore/apply_macro_weights) are covered by
-``tests/test_dashboard_smoke.py`` and intentionally not re-tested here.
+(snapshot_config / restore_config / apply_macro_weights) were retired
+in PR6 together with their dedicated smoke-test file.
 """
 
 from __future__ import annotations
