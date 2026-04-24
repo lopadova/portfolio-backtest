@@ -55,11 +55,9 @@ from src.monte_carlo import block_bootstrap, compute_mc_stats, simulate_wealth_p
 from src.options_overlay import simulate_options_overlay
 from src.plots import (
     plot_annual_returns,
-    plot_correlation_heatmap,
     plot_crisis_zoom,
     plot_drawdown,
     plot_equity_curve,
-    plot_mc_distribution,
     plot_mc_scenarios,
     plot_metrics_comparison,
     plot_monte_carlo_fan,
@@ -120,7 +118,10 @@ def _ensure_session_defaults() -> None:
         "portfolio_name": "My portfolio",
         "portfolio_assets": [],   # list[{key, weight}]
         "options_overlay": False,
-        "options_budget_bps": 30.0,        # 0.30% NAV/year
+        # options_budget is NOT in session_state — the UI widget was removed
+        # because the engine reads OPTIONS.budget_nav_per_year from globals
+        # and threading a per-run budget requires a per-Portfolio
+        # OptionsConfig (planned for a future PR).
         "rebalance_freq": "Semi-annual",
         "transaction_cost_bps": 20.0,
         "start_nav": 100_000.0,
@@ -235,13 +236,35 @@ with tab_settings:
     # ------ 🎯 Portafoglio ---------------------------------------------------
     st.subheader("🎯 Portafoglio")
 
-    # Build the picker options list. Each entry is (key, display_name,
-    # catalog_info) — we show "display_name  (key)" so the user sees both
-    # human name and short identifier.
-    available_asset_keys = sorted(catalog.keys())
+    # Build the picker options list from assets that are actually SIMULATABLE
+    # with the currently loaded return bundle. The catalog also contains
+    # benchmark-only / metadata-only series (e.g. `msci_world_tr_monthly`)
+    # which are not members of ``bundle.monthly_returns_eur.columns`` — if
+    # added to the portfolio they would be silently dropped by
+    # simulate_portfolio_generic and the remaining weights renormalized,
+    # producing a misleading result.
+    simulatable_asset_keys = set(bundle.monthly_returns_eur.columns)
+    available_asset_keys = sorted(
+        k for k in catalog.keys()
+        if k == "cash" or k in simulatable_asset_keys
+    )
     key_to_display = {
         k: f"{catalog[k].display_name}  ({k})" for k in available_asset_keys
     }
+
+    # If the portfolio already in session_state (e.g. loaded from a preset)
+    # contains keys not in the bundle, surface a hard error and block Run.
+    invalid_portfolio_keys = sorted({
+        row["key"]
+        for row in st.session_state["portfolio_assets"]
+        if row["key"] != "cash" and row["key"] not in simulatable_asset_keys
+    })
+    if invalid_portfolio_keys:
+        st.error(
+            "Alcuni asset nel portafoglio non sono simulabili con il dataset "
+            "corrente (mancano in `bundle.monthly_returns_eur`). Rimuovili "
+            f"prima di lanciare: {', '.join(invalid_portfolio_keys)}"
+        )
 
     pick_col, weight_col, btn_col = st.columns([6, 2, 2])
     with pick_col:
@@ -375,14 +398,13 @@ with tab_settings:
         st.session_state["options_overlay"] = st.checkbox(
             "Options overlay (SPY/QQQ put-spread)",
             value=st.session_state["options_overlay"],
-            help="Requires SPY/QQQ/VIX data in the bundle. 6-month put spreads on 30% of equity notional.",
-        )
-        st.session_state["options_budget_bps"] = st.number_input(
-            "Budget options (bps/anno)",
-            min_value=0.0, max_value=200.0,
-            value=float(st.session_state["options_budget_bps"]),
-            step=5.0,
-            disabled=not st.session_state["options_overlay"],
+            help=(
+                "Requires SPY/QQQ/VIX data in the bundle. 6-month put spreads "
+                "on 30% of equity notional. Budget is fixed at the global "
+                "OPTIONS.budget_nav_per_year default (0.30% NAV/year); a UI "
+                "knob for the budget requires a per-Portfolio OptionsConfig, "
+                "which is planned for a future PR."
+            ),
         )
     with reb_col:
         st.session_state["rebalance_freq"] = st.radio(
@@ -447,7 +469,11 @@ with tab_settings:
     with run_col:
         run_btn = st.button(
             "▶ Run backtest", type="primary", use_container_width=True,
-            disabled=(not sum_ok) or (not st.session_state["portfolio_assets"]),
+            disabled=(
+                (not sum_ok)
+                or (not st.session_state["portfolio_assets"])
+                or bool(invalid_portfolio_keys)
+            ),
         )
     with save_col:
         st.session_state["save_results"] = st.checkbox(
@@ -476,8 +502,17 @@ if run_btn:
             st.error(f"Portfolio validation failed: {e}")
         st.stop()
 
-    # Slice bundle to user-selected range
-    bundle_sliced = bundle.slice(start_date, end_date)
+    # Clamp the user-selected start to the earliest date at which all
+    # portfolio assets have data — otherwise the engine would implicitly
+    # treat pre-start months as 0% returns for assets with partial history,
+    # contradicting the warning we showed in the Impostazioni tab
+    # ("effective start = ..."). compute_effective_start returns the
+    # constraining start_date when user_start is too early.
+    effective_start, _ = compute_effective_start(start_date, user_portfolio, catalog)
+    run_start = effective_start if effective_start > start_date else start_date
+
+    # Slice bundle to the clamped range
+    bundle_sliced = bundle.slice(run_start, end_date)
 
     with st.spinner("Running backtest..."):
         # Core simulation (no options) — exactly what PR2/3 exposed.
@@ -491,7 +526,11 @@ if run_btn:
             f"{user_portfolio.name} (no options)": base_returns
         }
 
-        # Options overlay (if portfolio enables it AND bundle has SPY/QQQ/VIX)
+        # Options overlay (if portfolio enables it AND bundle has SPY/QQQ/VIX).
+        # Pass the user-selected rebalance frequency through so overlay rolls
+        # align with the main portfolio's rebalance schedule; otherwise
+        # simulate_options_overlay falls back to its hardcoded (1, 7) default
+        # and the user's Monthly/Quarterly/Annual choice would be ignored.
         if user_portfolio.options_overlay:
             nav_series = cumulative_wealth(base_returns, st.session_state["start_nav"])
             overlay_returns = simulate_options_overlay(
@@ -500,6 +539,7 @@ if run_btn:
                 vix_daily=bundle_sliced.vix_daily,
                 rf_daily=bundle_sliced.rf_daily,
                 nav_series=nav_series,
+                rebalance_months=user_portfolio.rebalance_months,
             )
             overlay_aligned = overlay_returns.reindex(base_returns.index).fillna(0.0)
             returns_dict[user_portfolio.name] = base_returns + overlay_aligned

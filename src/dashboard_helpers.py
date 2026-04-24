@@ -150,8 +150,8 @@ def compute_effective_start(
     the user's own start with no warning.
 
     Assets whose catalog entry has ``start_date=None`` (cash, or a CSV
-    that hasn't been downloaded yet) are ignored — they don't constrain
-    the window; the engine drops them for that period if unavailable.
+    that hasn't been downloaded yet) are ignored for this calculation:
+    they do not constrain the computed effective start date.
 
     Used by the Impostazioni tab to tell the user "your selected period
     starts before BTC has data; the simulation will actually start at

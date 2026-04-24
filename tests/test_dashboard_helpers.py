@@ -170,8 +170,9 @@ class TestComputeEffectiveStart:
 
     def test_unknown_asset_in_catalog_ignored(self):
         """Assets not in the catalog (user typo, stale reference) don't crash
-        the helper — they're just skipped. The engine will surface a clear
-        error when it tries to actually load them."""
+        the helper — they're skipped for effective-start calculation. This
+        matches current downstream behavior, where unknown asset keys may be
+        silently dropped if they are missing from ``monthly_returns``."""
         catalog = _toy_catalog()
         p = Portfolio(
             name="P",
