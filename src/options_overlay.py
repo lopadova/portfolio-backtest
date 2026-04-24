@@ -17,13 +17,13 @@ The simulator:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from .portfolio import OPTIONS
+from .portfolio import OPTIONS, OptionsConfig
 
 
 # ============================================================================
@@ -106,6 +106,8 @@ def simulate_options_overlay(
     rf_daily: pd.Series,
     nav_series: pd.Series,          # monthly NAV, indexed by EOM date
     rebalance_months: Tuple[int, ...] = (1, 7),
+    *,
+    options_config: Optional[OptionsConfig] = None,
 ) -> pd.Series:
     """
     Main driver. Returns a monthly P&L series (in EUR-approximate terms — since
@@ -115,8 +117,13 @@ def simulate_options_overlay(
 
     The returned P&L is the net cash flow during each month divided by NAV at
     start of month, so it can be added to the main portfolio return.
+
+    ``options_config`` (PR7) lets the caller override the global ``OPTIONS``
+    config per-call (per-Portfolio, per-sweep-iteration, per-Streamlit-session).
+    When ``None``, falls back to the module-level ``OPTIONS`` so pre-PR7 callers
+    keep producing bit-identical output.
     """
-    cfg = OPTIONS
+    cfg = options_config if options_config is not None else OPTIONS
     commission = cfg.commission_per_contract
     budget_per_half = cfg.budget_nav_per_year / 2.0  # 0.15% NAV per half-year
 

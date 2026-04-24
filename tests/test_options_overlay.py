@@ -145,3 +145,44 @@ class TestSimulatorSmoke:
         )
         # Flat market: we pay premium at roll dates and get zero back at expiry
         assert out.sum() <= 0.0
+
+    def test_options_config_kwarg_overrides_globals(self, fake_market_data):
+        """PR7: passing options_config= must REPLACE the global OPTIONS for
+        the duration of the call. We verify by setting a tiny budget on the
+        override and checking the absolute size of P&L is much smaller than
+        with the default budget — the overlay scales linearly with the
+        budget cap, so a 100x budget reduction must produce < 5% of the
+        default flow."""
+        from src.portfolio import OptionsConfig
+
+        d = fake_market_data
+        default_out = simulate_options_overlay(
+            spy_daily=d["spy"], qqq_daily=d["qqq"],
+            vix_daily=d["vix"], rf_daily=d["rf"],
+            nav_series=d["nav"], rebalance_months=(1, 7),
+        )
+        tiny_cfg = OptionsConfig(budget_nav_per_year=0.00003)  # 100x smaller
+        tiny_out = simulate_options_overlay(
+            spy_daily=d["spy"], qqq_daily=d["qqq"],
+            vix_daily=d["vix"], rf_daily=d["rf"],
+            nav_series=d["nav"], rebalance_months=(1, 7),
+            options_config=tiny_cfg,
+        )
+        assert abs(tiny_out.sum()) < abs(default_out.sum()) * 0.05
+
+    def test_options_config_none_matches_globals(self, fake_market_data):
+        """Calling with options_config=None must produce the same result
+        as omitting the kwarg entirely (legacy fallback to OPTIONS)."""
+        d = fake_market_data
+        a = simulate_options_overlay(
+            spy_daily=d["spy"], qqq_daily=d["qqq"],
+            vix_daily=d["vix"], rf_daily=d["rf"],
+            nav_series=d["nav"], rebalance_months=(1, 7),
+        )
+        b = simulate_options_overlay(
+            spy_daily=d["spy"], qqq_daily=d["qqq"],
+            vix_daily=d["vix"], rf_daily=d["rf"],
+            nav_series=d["nav"], rebalance_months=(1, 7),
+            options_config=None,
+        )
+        pd.testing.assert_series_equal(a, b)

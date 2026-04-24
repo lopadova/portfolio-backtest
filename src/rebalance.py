@@ -61,9 +61,18 @@ def build_portfolio_from_globals() -> Portfolio:
     OPTIONS). Used by the simulate_portfolio() shim so pre-PR2 callers keep
     getting bit-identical results without a code change.
 
-    When the globals are retired (PR3+), this function becomes the last
+    PR7: also captures a ``copy.copy(OPTIONS)`` snapshot into
+    ``options_config`` so the per-Portfolio overlay config travels with
+    the Portfolio object instead of being read fresh from the globals at
+    each ``simulate_options_overlay`` call. (This makes the legacy shim
+    safe against globals mutation that happens AFTER the Portfolio is
+    built — no functional change for unmutated globals.)
+
+    When the globals are retired (PR8+), this function becomes the last
     place that reads them and can be deleted together with the globals.
     """
+    import copy
+
     from .portfolio import OPTIONS  # local import avoids a circular ref at module load
 
     target = build_target_weights()  # dict sleeve -> weight, excluding cash
@@ -76,6 +85,7 @@ def build_portfolio_from_globals() -> Portfolio:
         rebalance_months=tuple(REBALANCE.months),
         transaction_cost_bps=float(REBALANCE.transaction_cost_bps),
         notes="Default preset, built from the src.portfolio legacy globals.",
+        options_config=copy.copy(OPTIONS),
     )
 
 
