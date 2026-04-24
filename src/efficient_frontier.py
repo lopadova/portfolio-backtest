@@ -31,6 +31,7 @@ import matplotlib.ticker as mtick
 from scipy.optimize import minimize
 
 from .data_loader import DataBundle
+from .portfolio_model import Portfolio
 
 
 @dataclass
@@ -426,42 +427,51 @@ def plot_efficient_frontier_interactive(
     return True
 
 
-def _compute_reference_point_on_universe(
-    sleeve_returns: pd.DataFrame,
-    annual_mean: pd.Series,
-    annual_cov: pd.DataFrame,
-    risk_free_rate: float,
-) -> Optional[FrontierPoint]:
-    """
-    Compute the reference portfolio's point on the *same* sleeve universe and
-    date index used for the frontier (not on the full simulate_portfolio
-    series, which would include pension/cash/TER effects and wouldn't be
-    directly comparable to the cloud + frontier).
-
-    Strategy: read the current module-level weights from portfolio.py
-    (WEIGHTS / EQUITY / CRYPTO / BONDS / EM_SATELLITES — i.e. the current
-    global Four Umbrellas configuration), filter to only the sleeves present
-    in `sleeve_returns.columns`, and normalize to sum=1.0. This gives the
-    reference "liquid-sleeves-only" position on the frontier's exact
-    coordinate system. This will be generalized once preset selection
-    and/or Portfolio objects are introduced (PR2).
-    """
+def _legacy_reference_weights() -> Dict[str, float]:
+    """Read the Four Umbrellas preset weights from the src.portfolio globals.
+    Used only when ``run_efficient_frontier`` is called without a Portfolio —
+    matches pre-PR3 behavior exactly."""
     from . import portfolio as pf
 
     raw_weights: Dict[str, float] = {}
     raw_weights["gold"] = pf.WEIGHTS.get("gold", 0.0)
     raw_weights["dbi"] = pf.WEIGHTS.get("dbi", 0.0)
-    for k, v in pf.EQUITY.items():
-        raw_weights[k] = v
-    for k, v in pf.CRYPTO.items():
-        raw_weights[k] = v
-    for k, v in pf.BONDS.items():
-        raw_weights[k] = v
-    for k, v in pf.EM_SATELLITES.items():
-        raw_weights[k] = v
+    for src in (pf.EQUITY, pf.CRYPTO, pf.BONDS, pf.EM_SATELLITES):
+        raw_weights.update(src)
+    return raw_weights
+
+
+def _compute_reference_point_on_universe(
+    sleeve_returns: pd.DataFrame,
+    annual_mean: pd.Series,
+    annual_cov: pd.DataFrame,
+    risk_free_rate: float,
+    raw_weights: Optional[Dict[str, float]] = None,
+    label: Optional[str] = None,
+) -> Optional[FrontierPoint]:
+    """
+    Compute a reference portfolio's point on the *same* sleeve universe and
+    date index used for the frontier (not on the full simulate_portfolio
+    series, which would include pension/cash/TER effects and wouldn't be
+    directly comparable to the cloud + frontier).
+
+    If ``raw_weights`` is None, falls back to the Four Umbrellas preset read
+    from ``src.portfolio`` globals (legacy behavior). Otherwise uses the
+    provided weights (typically a user Portfolio's ``to_weights_dict()``).
+    In both cases the weights are filtered to sleeves present in
+    ``sleeve_returns.columns`` and normalized to sum=1.0.
+    """
+    if raw_weights is None:
+        raw_weights = _legacy_reference_weights()
+        label = label or "Four Umbrellas (liquid sleeves, normalized)"
+    else:
+        label = label or "Reference portfolio (liquid sleeves, normalized)"
 
     # Filter to sleeves present in the universe, normalize to 1.0
-    present = {k: v for k, v in raw_weights.items() if k in sleeve_returns.columns and v > 0}
+    present = {
+        k: v for k, v in raw_weights.items()
+        if k in sleeve_returns.columns and v > 0
+    }
     total = sum(present.values())
     if total <= 0:
         return None
@@ -477,33 +487,66 @@ def _compute_reference_point_on_universe(
         expected_return=port_ret,
         volatility=port_vol,
         sharpe=sharpe,
-        label="Four Umbrellas (liquid sleeves, normalized)",
+        label=label,
     )
 
 
 def run_efficient_frontier(
     bundle: DataBundle,
+    portfolio: Optional[Portfolio] = None,
     n_random: int = 50_000,
     risk_free_rate: float = 0.02,
     seed: int = 42,
-    include_four_umbrellas_reference: bool = True,
+    include_reference_point: bool = True,
+    # Legacy kw for backward compat with pre-PR3 callers
+    include_four_umbrellas_reference: Optional[bool] = None,
 ) -> Tuple[pd.DataFrame, np.ndarray, Dict[str, FrontierPoint], pd.DataFrame, Optional[FrontierPoint], List[str]]:
     """
     Orchestrate the full efficient-frontier analysis on the sleeve returns in
     the data bundle.
 
-    Returns: (random_eval_df, weights_matrix, key_portfolios, frontier_df, four_umbrellas_point, asset_names)
+    Behavior depends on ``portfolio``:
 
-    NOTE: Four Umbrellas reference is now computed on the *identical sleeve
-    universe + date range* as the frontier itself (liquid sleeves only,
-    dropna-aligned), making the comparison coordinate-exact. The old API
-    (passing four_umbrellas_returns from a full simulate_portfolio call)
-    was not directly comparable because it included pension/cash/TER effects.
+    * ``portfolio is None`` (legacy, pre-PR3) → universe = bundle sleeves minus
+      pension, reference point = Four Umbrellas preset from ``src.portfolio``
+      globals. Matches pre-PR3 output exactly.
+    * ``portfolio is not None`` → universe = the portfolio's asset keys minus
+      ``cash`` (cash is excluded — the frontier operates on the risky sleeves
+      only). Reference point = that portfolio normalized to the universe.
+
+    Returns: (random_eval_df, weights_matrix, key_portfolios, frontier_df,
+              reference_point, asset_names).
     """
-    # Use only non-pension sleeves for the frontier — pension is locked,
-    # so including it as a free weight would be misleading
-    excluded = {"pension_bond", "pension_equity"}
-    sleeve_returns = bundle.monthly_returns_eur.drop(columns=[c for c in excluded if c in bundle.monthly_returns_eur.columns])
+    # Legacy kw alias: accept `include_four_umbrellas_reference=` for pre-PR3
+    # callers. If both are given (shouldn't happen) the new kw wins.
+    if include_four_umbrellas_reference is not None:
+        include_reference_point = include_four_umbrellas_reference
+
+    if portfolio is None:
+        # Legacy path: use all bundle sleeves minus pension
+        excluded = {"pension_bond", "pension_equity"}
+        sleeve_returns = bundle.monthly_returns_eur.drop(
+            columns=[c for c in excluded if c in bundle.monthly_returns_eur.columns]
+        )
+        reference_raw_weights: Optional[Dict[str, float]] = None  # falls back to globals
+        reference_label: Optional[str] = None
+    else:
+        # Generic path: universe = portfolio assets minus cash (cash excluded
+        # from the frontier — it's the residual risk-free sleeve, not an
+        # optimization degree of freedom).
+        keys = [a.key for a in portfolio.assets if a.key != "cash"]
+        available = [k for k in keys if k in bundle.monthly_returns_eur.columns]
+        if not available:
+            raise ValueError(
+                f"None of the portfolio assets {keys!r} are available in the data bundle. "
+                f"Check that the CSVs for those keys exist in data/raw/."
+            )
+        sleeve_returns = bundle.monthly_returns_eur[available].copy()
+        reference_raw_weights = {
+            a.key: a.weight for a in portfolio.assets if a.key != "cash"
+        }
+        reference_label = f"{portfolio.name} (liquid sleeves, normalized)"
+
     sleeve_returns = sleeve_returns.dropna(how="any")
     asset_names = list(sleeve_returns.columns)
 
@@ -522,11 +565,13 @@ def run_efficient_frontier(
         asset_names=asset_names, rf=risk_free_rate,
     )
 
-    # Four Umbrellas reference — computed on the same universe as the frontier
-    four_umbrellas_point = None
-    if include_four_umbrellas_reference:
-        four_umbrellas_point = _compute_reference_point_on_universe(
+    # Reference point on the frontier's coordinate system
+    reference_point = None
+    if include_reference_point:
+        reference_point = _compute_reference_point_on_universe(
             sleeve_returns, annual_mean, annual_cov, risk_free_rate,
+            raw_weights=reference_raw_weights,
+            label=reference_label,
         )
 
-    return random_eval_df, weights_matrix, key_portfolios, frontier_df, four_umbrellas_point, asset_names
+    return random_eval_df, weights_matrix, key_portfolios, frontier_df, reference_point, asset_names
