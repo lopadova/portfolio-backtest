@@ -18,13 +18,18 @@ import sys
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-import pandas as pd
+# Run the environment check BEFORE importing any third-party package —
+# otherwise users who forget to activate the venv get a raw
+# `ModuleNotFoundError: No module named 'pandas'` traceback.
+from src.env_check import require_runtime_deps, load_dotenv  # stdlib-only
+require_runtime_deps(
+    ["pandas", "yfinance"],
+    script_name="fetch_data.py",
+)
+load_dotenv()
 
-try:
-    import yfinance as yf
-except ImportError:
-    print("Missing dependencies. Run: pip install -r requirements.txt")
-    sys.exit(1)
+import pandas as pd
+import yfinance as yf
 
 
 # FRED publishes free CSVs at this endpoint — no API key, no paid tier, works

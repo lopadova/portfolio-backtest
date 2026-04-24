@@ -16,6 +16,16 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+# Run the environment check BEFORE importing anything from src/ that depends
+# on pandas/numpy/matplotlib — otherwise users who forget to activate the
+# venv get a raw `ModuleNotFoundError` traceback instead of guidance.
+from src.env_check import require_runtime_deps, load_dotenv  # stdlib-only
+require_runtime_deps(
+    ["pandas", "numpy", "matplotlib"],
+    script_name="fire.py",
+)
+load_dotenv()
+
 from src.data_loader import load_data
 from src.rebalance import simulate_portfolio
 from src.fire import (
