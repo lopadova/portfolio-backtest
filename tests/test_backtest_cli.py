@@ -72,9 +72,16 @@ class TestListPresets:
         backtest_mod._print_preset_listing()
         out = capsys.readouterr().out
         assert "four_umbrellas" in out
-        assert "assets" in out  # the header line
-        # Shows asset count; four_umbrellas ships with 19 assets
+        # The header contains stable column labels — match on ones that
+        # don't get truncated by the fixed-width formatter (PR6 shortened
+        # "assets" → "as" to fit the metrics columns into 110-char width).
+        assert "CAGR" in out
+        assert "Period" in out
+        # Shows asset count for four_umbrellas (19)
         assert "19" in out
+        # Shipped preset is flagged as reserved (ASCII '*' marker — emoji
+        # crashes Windows cp1252, see CLI print ASCII rule in LESSONS.md).
+        assert "* four_umbrellas" in out
 
     def test_empty_dir(self, capsys, tmp_path, monkeypatch):
         """If portfolios/ is empty (or doesn't exist), listing prints a

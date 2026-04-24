@@ -1,29 +1,21 @@
 """
-Streamlit-free helpers shared between `streamlit_app.py` and its tests.
+Streamlit-free helpers shared between ``streamlit_app.py`` and its tests.
 
-Two families of helpers live here:
-
-1. **Legacy globals management** (pre-PR4): `snapshot_config`, `restore_config`,
-   `apply_macro_weights`. The old gold/DBi-slider UI mutated
-   src.portfolio globals; these helpers snapshotted / restored them so CLI
-   runs in the same process weren't contaminated. Retained for backwards
-   compat of `tests/test_dashboard_smoke.py`; the new Streamlit UI (PR4+)
-   never mutates globals.
-
-2. **Portfolio-aware helpers** (PR4): `build_portfolio_from_ui_state`,
-   `compute_effective_start`, `format_asset_start_date`. Pure functions
-   consumed by the new Impostazioni tab and trivially testable without a
-   Streamlit runtime.
+All helpers are pure-Python and portfolio-aware: they take a
+:class:`src.portfolio_model.Portfolio` (or build one from session_state)
+rather than mutating module globals like the pre-PR4 gold/DBi-slider
+implementation used to do. That old globals-mutation code path
+(``snapshot_config`` / ``restore_config`` / ``apply_macro_weights``)
+was retired in PR6 — nothing in the new UI or CLI needs it, and keeping
+dead helpers around invites drift.
 """
 
 from __future__ import annotations
 
-import copy
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from . import portfolio as portfolio_cfg
 from .data_catalog import AssetInfo
 from .data_loader import DataBundle
 from .fire import FireConfig
@@ -35,68 +27,8 @@ _ITALIAN_MONTH_ABBR = (
 )
 
 
-def snapshot_config() -> Dict[str, Any]:
-    """
-    Return a deep-copied snapshot of the mutable portfolio configuration.
-    Safe to call multiple times; each snapshot is independent.
-    """
-    return {
-        "WEIGHTS": copy.deepcopy(portfolio_cfg.WEIGHTS),
-        "EQUITY": copy.deepcopy(portfolio_cfg.EQUITY),
-        "OPTIONS": copy.deepcopy(portfolio_cfg.OPTIONS),
-        "REBALANCE": copy.deepcopy(portfolio_cfg.REBALANCE),
-    }
-
-
-def restore_config(snapshot: Dict[str, Any]) -> None:
-    """
-    Restore the portfolio configuration from a previously-taken snapshot.
-    Mutates the module globals in place so existing references stay valid.
-    """
-    portfolio_cfg.WEIGHTS.clear()
-    portfolio_cfg.WEIGHTS.update(snapshot["WEIGHTS"])
-    portfolio_cfg.EQUITY.clear()
-    portfolio_cfg.EQUITY.update(snapshot["EQUITY"])
-    portfolio_cfg.OPTIONS.__dict__.update(snapshot["OPTIONS"].__dict__)
-    portfolio_cfg.REBALANCE.__dict__.update(snapshot["REBALANCE"].__dict__)
-
-
-def apply_macro_weights(gold_pct: float, dbi_pct: float) -> None:
-    """
-    Apply macro weight changes (gold and DBi) and re-derive cash as the
-    residual so WEIGHTS always sums to exactly 1.0.
-
-    Raises ValueError if the resulting cash weight would be negative.
-
-    Args:
-        gold_pct: target gold weight as a fraction [0, 1] (not percentage).
-        dbi_pct: target DBi weight as a fraction [0, 1].
-
-    .. deprecated:: PR4
-        The new Streamlit UI builds a :class:`Portfolio` dataclass instead
-        of mutating globals. This helper is retained so the pre-PR4 test
-        suite keeps passing; new callers should use
-        :func:`build_portfolio_from_ui_state`.
-    """
-    if not (0.0 <= gold_pct <= 1.0):
-        raise ValueError(f"gold_pct must be in [0, 1], got {gold_pct}")
-    if not (0.0 <= dbi_pct <= 1.0):
-        raise ValueError(f"dbi_pct must be in [0, 1], got {dbi_pct}")
-
-    portfolio_cfg.WEIGHTS["gold"] = gold_pct
-    portfolio_cfg.WEIGHTS["dbi"] = dbi_pct
-    non_cash_sum = sum(v for k, v in portfolio_cfg.WEIGHTS.items() if k != "cash")
-    new_cash = 1.0 - non_cash_sum
-    if new_cash < -1e-9:
-        raise ValueError(
-            f"gold={gold_pct} + dbi={dbi_pct} leave negative cash ({new_cash:.4f}). "
-            f"Other non-cash weights sum to {non_cash_sum - gold_pct - dbi_pct:.4f}."
-        )
-    portfolio_cfg.WEIGHTS["cash"] = max(0.0, new_cash)
-
-
 # ============================================================================
-# PR4 — portfolio-aware helpers (new Streamlit UI)
+# Portfolio-aware helpers (PR4+)
 # ============================================================================
 
 def build_portfolio_from_ui_state(

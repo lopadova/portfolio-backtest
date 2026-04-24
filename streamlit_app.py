@@ -22,6 +22,7 @@ PR4 architecture:
 
 from __future__ import annotations
 
+import dataclasses
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
@@ -87,8 +88,16 @@ from src.plots import (
     plot_rolling_sharpe,
     plot_underwater,
 )
+from datetime import datetime
+
 from src.portfolio import BENCHMARKS
-from src.portfolio_model import Portfolio, list_available_presets
+from src.portfolio_model import (
+    DEFAULT_PORTFOLIOS_DIR,
+    Portfolio,
+    PortfolioMetricsCache,
+    list_available_presets,
+    slugify,
+)
 from src.rebalance import simulate_benchmark, simulate_portfolio
 from src.report import generate_markdown_report
 
@@ -218,7 +227,7 @@ _ensure_session_defaults()
 # that are always "visible" (empty info panel if no run yet).
 (
     tab_settings, tab_summary, tab_charts, tab_mc,
-    tab_frontier, tab_fire, tab_walkforward, tab_ai,
+    tab_frontier, tab_fire, tab_walkforward, tab_ai, tab_saved,
 ) = st.tabs([
     "⚙️ Impostazioni",
     "📊 Summary",
@@ -228,6 +237,7 @@ _ensure_session_defaults()
     "🔥 FIRE",
     "🌀 Simulazione storica",
     "🤖 AI Analysis",
+    "📂 Portafogli salvati",
 ])
 
 
@@ -970,6 +980,62 @@ with tab_summary:
             use_container_width=True,
         )
 
+        # ---- PR6: save the portfolio that was just simulated --------------
+        st.divider()
+        st.subheader("💾 Salva portafoglio")
+        with st.form("save_portfolio_form", clear_on_submit=False):
+            default_name = last_run["portfolio"].name
+            save_name = st.text_input(
+                "Nome", value=default_name,
+                help="Il nome umano; lo slug del filename viene derivato automaticamente.",
+            )
+            save_notes = st.text_area(
+                "Note (opzionale)", value=last_run["portfolio"].notes,
+                help="Commento libero memorizzato nel TOML come campo 'notes'.",
+            )
+            save_overwrite = st.checkbox(
+                "Sovrascrivi se esiste già un preset con lo stesso slug",
+                value=False,
+            )
+            submitted = st.form_submit_button("💾 Salva", type="primary")
+        if submitted:
+            try:
+                slug = slugify(save_name)
+                target = DEFAULT_PORTFOLIOS_DIR / f"{slug}.toml"
+                # Build the cache from the main series at the moment of save
+                main_name = (
+                    last_run["portfolio"].name
+                    if last_run["portfolio"].name in last_run["returns_dict"]
+                    else f"{last_run['portfolio'].name} (no options)"
+                )
+                main_returns = last_run["returns_dict"][main_name]
+                main_stats = next(
+                    (s for s in last_run["stats_list"] if s.name == main_name),
+                    last_run["stats_list"][0],
+                )
+                metrics_cache = PortfolioMetricsCache(
+                    cagr=float(main_stats.cagr),
+                    annualized_vol=float(main_stats.annualized_vol),
+                    max_drawdown=float(main_stats.max_drawdown),
+                    period_start=last_run["start_date"],
+                    period_end=last_run["end_date"],
+                    run_timestamp=datetime.utcnow().replace(microsecond=0),
+                )
+                to_save = dataclasses.replace(
+                    last_run["portfolio"],
+                    name=save_name,
+                    notes=save_notes,
+                    cached_metrics=metrics_cache,
+                )
+                written = to_save.save_to(target, overwrite=save_overwrite)
+                st.success(f"Portafoglio salvato in `{written}`")
+            except FileExistsError as e:
+                st.error(
+                    f"{e} Spunta 'Sovrascrivi' e riprova, oppure usa un altro nome."
+                )
+            except ValueError as e:
+                st.error(f"Impossibile salvare: {e}")
+
 
 with tab_charts:
     if last_run is None:
@@ -1231,3 +1297,130 @@ Summary statistics:
                     st.caption(f"Saved to {last_run['output_dir'] / 'AI_ANALYSIS.md'}")
             except Exception as e:
                 st.error(f"AI analysis failed: {e}")
+
+
+with tab_saved:
+    st.subheader("📂 Portafogli salvati")
+    st.caption(
+        "Portafogli scritti in `portfolios/*.toml` dal bottone 💾 Salva "
+        "portafoglio (o da `backtest.py --save-as NAME`). I preset shipped "
+        "nel repo (marcati 📌) non possono essere eliminati o sovrascritti "
+        "dalla UI — sono parte del codice e si aggiornano via PR."
+    )
+
+    _entries = list_available_presets()
+    if not _entries:
+        st.info("Nessun preset disponibile. Salva un portafoglio dal tab Summary post-run.")
+    else:
+        for _e in _entries:
+            _name = _e["name"]
+            _display = _e["display_name"]
+            _is_reserved = _e.get("is_reserved", False)
+            _metrics = _e.get("cached_metrics")
+
+            # Row header: name + reserved pin
+            _header = f"{'📌 ' if _is_reserved else ''}**{_display}**  `({_name})`"
+            with st.container(border=True):
+                st.markdown(_header)
+                if _e["notes"]:
+                    st.caption(_e["notes"])
+
+                # Metrics row
+                if _metrics is not None:
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("CAGR", f"{_metrics.cagr * 100:.2f}%")
+                    c2.metric("Vol", f"{_metrics.annualized_vol * 100:.2f}%")
+                    c3.metric("Max DD", f"{_metrics.max_drawdown * 100:.2f}%")
+                    _period_label = (
+                        f"{_metrics.period_start.date().isoformat()[:7]} → "
+                        f"{_metrics.period_end.date().isoformat()[:7]}"
+                    )
+                    c4.metric("Period", _period_label)
+                else:
+                    st.caption(
+                        f"{_e['n_assets']} asset · nessuna metrica cached "
+                        "(nessuna run è stata salvata su questo preset)"
+                    )
+
+                # Actions row
+                _act_load, _act_del, _pad = st.columns([1, 1, 4])
+                with _act_load:
+                    if st.button("▶ Carica", key=f"_load_{_name}", use_container_width=True):
+                        try:
+                            _loaded = Portfolio.from_toml(_e["path"])
+                        except Exception as exc:
+                            st.error(f"Impossibile caricare {_name!r}: {exc}")
+                        else:
+                            # Repopulate the Impostazioni state
+                            st.session_state["portfolio_name"] = _loaded.name
+                            st.session_state["portfolio_assets"] = [
+                                {"key": a.key, "weight": a.weight}
+                                for a in _loaded.assets
+                            ]
+                            st.session_state["options_overlay"] = _loaded.options_overlay
+                            st.session_state["transaction_cost_bps"] = _loaded.transaction_cost_bps
+                            # Map the preset's rebalance_months tuple back to
+                            # one of the 4 UI labels. If the preset uses a
+                            # custom cadence (valid in the Portfolio model but
+                            # not selectable from the radio), fall back to the
+                            # first UI option and warn the user — otherwise the
+                            # Impostazioni tab would silently keep the PREVIOUS
+                            # selection, masking the mismatch.
+                            _matched_label = next(
+                                (
+                                    _label
+                                    for _label, _months in _REBALANCE_FREQ_TO_MONTHS.items()
+                                    if _months == _loaded.rebalance_months
+                                ),
+                                None,
+                            )
+                            if _matched_label is None:
+                                _fallback_label = next(iter(_REBALANCE_FREQ_TO_MONTHS))
+                                st.session_state["rebalance_freq"] = _fallback_label
+                                st.warning(
+                                    f"Il preset usa rebalance_months={_loaded.rebalance_months} "
+                                    "— non tra le opzioni della radio UI "
+                                    f"({list(_REBALANCE_FREQ_TO_MONTHS.keys())}). "
+                                    f"Selezionata la predefinita {_fallback_label!r}; "
+                                    "modifica manualmente se necessario."
+                                )
+                            else:
+                                st.session_state["rebalance_freq"] = _matched_label
+                            st.success(
+                                f"Caricato {_loaded.name!r}. Vai nel tab ⚙️ Impostazioni e premi "
+                                "▶ Run backtest per rieseguire."
+                            )
+                            st.rerun()
+
+                with _act_del:
+                    if _is_reserved:
+                        st.button(
+                            "🔒 Shipped", key=f"_del_{_name}",
+                            disabled=True, use_container_width=True,
+                            help="Preset shipped nel repo: non eliminabile dalla UI.",
+                        )
+                    else:
+                        # Two-click delete: the first click arms a confirm
+                        # button in session_state; the second click actually
+                        # removes the file. Prevents accidental deletions.
+                        _confirm_key = f"_confirm_del_{_name}"
+                        if st.session_state.get(_confirm_key):
+                            if st.button(
+                                "⚠️ Conferma elimina", key=f"_del_{_name}",
+                                use_container_width=True, type="primary",
+                            ):
+                                try:
+                                    Path(_e["path"]).unlink()
+                                    st.success(f"Eliminato {_name!r}.")
+                                except Exception as exc:
+                                    st.error(f"Impossibile eliminare: {exc}")
+                                finally:
+                                    st.session_state.pop(_confirm_key, None)
+                                st.rerun()
+                        else:
+                            if st.button(
+                                "🗑️ Elimina", key=f"_del_{_name}",
+                                use_container_width=True,
+                            ):
+                                st.session_state[_confirm_key] = True
+                                st.rerun()

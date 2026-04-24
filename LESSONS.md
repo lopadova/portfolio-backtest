@@ -175,6 +175,48 @@ Even with a gate that "should" prevent bad inputs, the handful of pathological c
 
 ---
 
+## Theme 17 — Docstring drift: docstrings are promises, not wishful thinking
+
+A docstring that advertises schema fields, format-char choices, or "stdlib-only" guarantees becomes a lie the moment the code drifts. Reviewers and future-me trust docstrings; they shouldn't.
+
+- PR #20 (PR6). `list_available_presets` docstring listed a 6-key return schema but the implementation also added `is_reserved` (used by the CLI `*` prefix and the UI Shipped flag). Callers reading the docstring would miss a field they need. **Fix**: added `is_reserved` to the documented schema with a one-line semantic note.
+- PR #20 (PR6). `Portfolio.to_toml` docstring said "Hand-rolled to keep the module stdlib-only" — but by PR6 the module had started importing pandas for `PortfolioMetricsCache` timestamps, making the stdlib-only claim false. **Fix**: reworded to "to avoid pulling in a third-party TOML writer" with an explicit note that the module itself is not stdlib-only.
+- PR #20 (PR6). `_print_preset_listing` docstring said outputs used "—" and "📌", but the implementation used ASCII `-` and `*` (to avoid Windows cp1252 crashes — see Theme 18). **Fix**: docstring now describes the ASCII actuals and points at LESSONS Theme 18.
+
+**Candidate rule**: every code change that modifies a return schema, a dependency set, or a format character bumps against the docstring of the same function. In PR review, grep the diff for function-level docstring changes that should have accompanied the logic change but didn't.
+
+---
+
+## Theme 18 — ASCII-only CLI output on Windows
+
+Emoji, em-dashes, and Unicode arrows (U+2192 `→`) crash Windows' default `cp1252` stdout codec with `UnicodeEncodeError`, aborting the CLI mid-print. Inside a Streamlit app the browser renders UTF-8 natively so the same characters work; the contamination happens when Copilot-review-style "just make it pretty" suggestions leak Unicode into `print()` calls shared across CLI and UI.
+
+- PR #20 (PR6). `_save_portfolio_or_exit` printed `💾 Portfolio saved: ...` and the preset-listing header used `→` for the period separator + `📌` for reserved presets. Every Windows-default terminal crashed with `UnicodeEncodeError` on those characters. **Fix**: ASCII replacements everywhere — `[SAVED] Portfolio written to`, `->` in dates, `* ` prefix for reserved.
+
+**Candidate rule**: `print()` / CLI stdout strings must stay 7-bit ASCII, full stop. If a string is meant for the browser (Streamlit), keep the emoji; if it could ever flow through `print()` or a logger, strip it. Consider a `ruff`-style check that scans `backtest.py` and `src/*.py` for non-ASCII characters inside `print(...)` arguments.
+
+---
+
+## Theme 19 — Cleanup must be total: orphan references are worse than no cleanup
+
+When a module retires a public symbol, every *importer* must be updated in the same commit. Leaving a `from x import Foo` where `Foo` was deleted produces the worst kind of regression: the file still imports cleanly, tests still pass, but the unused import is a landmine for a future reader / linter.
+
+- PR #20 (PR6). `streamlit_app.py` imported `RESERVED_PRESET_SLUGS` from `src.portfolio_model` but never referenced it in the dashboard code (I had planned to use it for the Shipped check but ended up using `_e['is_reserved']` from the listing dict). The import survived the UI rewrite as dead weight. **Fix**: removed.
+
+**Candidate rule**: when finalizing a PR, run `ruff --select F401` (or `pyflakes`) over every touched file. If F401 reports unused imports, either delete them or add a `# noqa: F401` with a rationale comment — never leave them silent.
+
+---
+
+## Theme 20 — UI state reloads must handle the "no mapping" case explicitly
+
+When a UI offers a fixed set of choices (radio buttons, dropdowns) but the underlying data model allows richer values, loading an out-of-UI-set value must produce a visible warning. Silently leaving the widget on its PREVIOUS value is a trap: the user thinks they loaded the preset faithfully, but the simulation runs with a different cadence.
+
+- PR #20 (PR6). The Portafogli-salvati Load button mapped the loaded Portfolio's `rebalance_months` tuple back to one of the 4 UI radio labels (Annual / Semi-annual / Quarterly / Monthly). For a preset with a non-standard cadence (e.g. `(1, 3, 6, 9)`, valid in the Portfolio dataclass), the `for/break` loop silently fell through — `st.session_state["rebalance_freq"]` kept its previous value. The next Run would use the wrong cadence. **Fix**: replaced the `for/break` with a `next((... if match ...), None)` expression; when `None`, set the radio to the first UI option and emit `st.warning` with the preset's raw tuple + the chosen fallback.
+
+**Candidate rule**: any code that maps a rich model value back to a widget's constrained choice set must have an explicit "no match" branch that is either (a) a hard failure, (b) a sensible default + user warning, or (c) an extension of the choice set with a "Custom" option. Silent carry-over of the previous widget value is never correct.
+
+---
+
 ## Theme 16 — Hardcoded product/preset labels leak through when names become data
 
 When a preset's name used to be a hardcoded product name but is now user-configurable, every chart legend / annotation / hover card that built a string around the old hardcoded name needs to switch to the runtime `label` field.

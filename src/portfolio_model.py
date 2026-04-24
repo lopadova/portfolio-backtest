@@ -34,13 +34,71 @@ hand-rolled emitter in ``_dump_toml`` — keeps this module stdlib-only.
 from __future__ import annotations
 
 import json
+import re
 import tomllib
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+import pandas as pd
 
 _WEIGHTS_SUM_TOLERANCE = 0.002
 DEFAULT_PORTFOLIOS_DIR = Path(__file__).resolve().parent.parent / "portfolios"
+
+# Slug names that point at repo-shipped presets — these must never be
+# overwritten or deleted by user operations, only updated intentionally
+# via a PR to the repo itself.
+RESERVED_PRESET_SLUGS = frozenset({"four_umbrellas"})
+
+_SLUG_VALID_CHARS = re.compile(r"[a-z0-9]+")
+
+
+def slugify(name: str) -> str:
+    """Turn a human-readable portfolio name into a stable filesystem slug.
+
+    Rules: lowercase, non-alphanumeric → ``_``, collapse consecutive ``_``,
+    strip leading/trailing ``_``. Raises ``ValueError`` if the result is
+    empty (the input was all whitespace / punctuation) or if it collides
+    with a :data:`RESERVED_PRESET_SLUGS` entry.
+    """
+    if not isinstance(name, str):
+        raise ValueError(f"Portfolio name must be a string, got {type(name).__name__}")
+    tokens = _SLUG_VALID_CHARS.findall(name.lower())
+    slug = "_".join(tokens)
+    if not slug:
+        raise ValueError(
+            f"Cannot derive a slug from {name!r}: the name contains no "
+            f"alphanumeric characters."
+        )
+    if slug in RESERVED_PRESET_SLUGS:
+        raise ValueError(
+            f"Slug {slug!r} is reserved for a shipped preset and cannot be "
+            f"used as a user-portfolio filename. Pick a different name."
+        )
+    return slug
+
+
+@dataclass
+class PortfolioMetricsCache:
+    """Cached summary statistics of the last successful simulation.
+
+    Stored as the ``[metrics]`` section of a saved portfolio TOML so the
+    "Portafogli salvati" UI page can show a preview (CAGR / Vol / MaxDD /
+    Period) without re-running the simulation.
+
+    ``run_timestamp`` is a naive UTC datetime (no tz info) — TOML
+    round-trips best with RFC 3339 strings, and naive UTC keeps the
+    comparison between saves deterministic regardless of the user's
+    local timezone.
+    """
+
+    cagr: float
+    annualized_vol: float
+    max_drawdown: float
+    period_start: pd.Timestamp
+    period_end: pd.Timestamp
+    run_timestamp: datetime
 
 
 @dataclass(frozen=True)
@@ -61,6 +119,9 @@ class Portfolio:
     rebalance_months: Tuple[int, ...] = (1, 7)
     transaction_cost_bps: float = 20.0
     notes: str = ""
+    # PR6 — optional cached metrics from the last successful simulation.
+    # Never enters `validate()` (it's auxiliary metadata, not engine config).
+    cached_metrics: Optional[PortfolioMetricsCache] = None
 
     # ---------------------------------------------------------------- validate
     def validate(self) -> None:
@@ -179,6 +240,7 @@ class Portfolio:
                 f"Portfolio 'transaction_cost_bps' must be a number, "
                 f"got {data.get('transaction_cost_bps')!r}: {exc}"
             ) from exc
+        cached_metrics = _parse_metrics_section(data.get("metrics"))
         p = cls(
             name=str(data["name"]),
             assets=assets,
@@ -186,6 +248,7 @@ class Portfolio:
             rebalance_months=rebalance_months,
             transaction_cost_bps=transaction_cost_bps,
             notes=str(data.get("notes", "")),
+            cached_metrics=cached_metrics,
         )
         p.validate()
         return p
@@ -244,10 +307,41 @@ class Portfolio:
 
     # --------------------------------------------------------------- emit TOML
     def to_toml(self) -> str:
-        """Emit a TOML representation of this Portfolio. Used by tests and the
-        future "save portfolio" UI (PR5). Hand-rolled to keep the module
-        stdlib-only; covers the exact schema we read in ``from_dict``."""
+        """Emit a TOML representation of this Portfolio, including the
+        ``[metrics]`` section when ``cached_metrics`` is set. Hand-rolled
+        to avoid pulling in a third-party TOML writer; covers the exact
+        schema read by :meth:`from_dict`. Note that this module itself is
+        not stdlib-only — it imports pandas for timestamp handling — so
+        the rationale is "no extra TOML-writer dep", not "zero 3rd-party
+        imports"."""
         return _dump_toml(self)
+
+    def save_to(self, path: str | Path, overwrite: bool = False) -> Path:
+        """Serialize to TOML and write to ``path``.
+
+        Returns the resolved output path for chaining / logging.
+
+        Raises:
+            FileExistsError: target exists and ``overwrite`` is False.
+            ValueError: ``path`` targets the shipped Four Umbrellas preset
+                — shipped presets live in the repo and must only be updated
+                via a code change, never from a user-initiated save.
+        """
+        path = Path(path)
+        stem = path.stem
+        if stem in RESERVED_PRESET_SLUGS:
+            raise ValueError(
+                f"Refusing to overwrite shipped preset {stem!r}. Shipped "
+                f"presets are part of the repo and must be updated via a "
+                f"code change, not a user save."
+            )
+        if path.exists() and not overwrite:
+            raise FileExistsError(
+                f"Portfolio already saved at {path}; pass overwrite=True to replace."
+            )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(self.to_toml(), encoding="utf-8")
+        return path.resolve()
 
 
 def _escape_toml_basic_string(s: str) -> str:
@@ -262,7 +356,7 @@ def _escape_toml_basic_string(s: str) -> str:
 
 
 def _dump_toml(p: Portfolio) -> str:
-    """Minimal TOML emitter for the Portfolio schema."""
+    """Minimal TOML emitter for the Portfolio schema (+ optional metrics)."""
     lines: list[str] = []
     lines.append(f'name = "{_escape_toml_basic_string(p.name)}"')
     if p.notes:
@@ -277,13 +371,83 @@ def _dump_toml(p: Portfolio) -> str:
         lines.append("[[assets]]")
         lines.append(f'key    = "{_escape_toml_basic_string(a.key)}"')
         lines.append(f"weight = {a.weight}")
+    if p.cached_metrics is not None:
+        m = p.cached_metrics
+        lines.append("")
+        lines.append("[metrics]")
+        lines.append(f"cagr = {m.cagr}")
+        lines.append(f"annualized_vol = {m.annualized_vol}")
+        lines.append(f"max_drawdown = {m.max_drawdown}")
+        # Dates as ISO YYYY-MM-DD strings (TOML's native local-date would
+        # also work but tomllib returns it as datetime.date — one less
+        # conversion to reason about if we just use strings both ways).
+        lines.append(f'period_start = "{m.period_start.date().isoformat()}"')
+        lines.append(f'period_end = "{m.period_end.date().isoformat()}"')
+        lines.append(f'run_timestamp = "{m.run_timestamp.isoformat(timespec="seconds")}"')
     return "\n".join(lines) + "\n"
 
 
+def _parse_metrics_section(section: Any) -> Optional[PortfolioMetricsCache]:
+    """Parse the optional ``[metrics]`` section of a Portfolio TOML.
+
+    Returns ``None`` when the section is absent. Raises ``ValueError`` on
+    a partial or badly-typed section — presence of ``[metrics]`` means the
+    caller is committing to all six required fields.
+    """
+    if section is None:
+        return None
+    if not isinstance(section, dict):
+        raise ValueError("Portfolio [metrics] section must be a TOML table")
+    required = (
+        "cagr", "annualized_vol", "max_drawdown",
+        "period_start", "period_end", "run_timestamp",
+    )
+    missing = [f for f in required if f not in section]
+    if missing:
+        raise ValueError(
+            f"Portfolio [metrics] section missing required field(s): "
+            f"{', '.join(missing)}"
+        )
+    try:
+        return PortfolioMetricsCache(
+            cagr=float(section["cagr"]),
+            annualized_vol=float(section["annualized_vol"]),
+            max_drawdown=float(section["max_drawdown"]),
+            period_start=pd.Timestamp(section["period_start"]),
+            period_end=pd.Timestamp(section["period_end"]),
+            run_timestamp=_parse_iso_datetime(section["run_timestamp"]),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Portfolio [metrics] section has a badly-typed field: {exc}"
+        ) from exc
+
+
+def _parse_iso_datetime(raw: Any) -> datetime:
+    """Accept a string or an already-parsed datetime (tomllib returns
+    datetime objects for native TOML datetimes)."""
+    if isinstance(raw, datetime):
+        return raw
+    if isinstance(raw, str):
+        return datetime.fromisoformat(raw)
+    raise ValueError(
+        f"run_timestamp must be an ISO string or datetime, got {type(raw).__name__}"
+    )
+
+
 def list_available_presets(root: Path = DEFAULT_PORTFOLIOS_DIR) -> List[dict]:
-    """Return one dict per preset in ``root``: ``{name, path, n_assets, notes}``.
-    Used by the CLI ``--list-portfolios`` flag. Errors on individual files are
-    caught so one malformed preset doesn't break listing."""
+    """Return one dict per preset in ``root``. Schema:
+    ``{name, display_name, path, n_assets, notes, cached_metrics, is_reserved}``.
+
+    - ``cached_metrics``: parsed :class:`PortfolioMetricsCache` when the
+      TOML has a ``[metrics]`` section, else ``None``.
+    - ``is_reserved``: ``True`` when the preset slug is in
+      :data:`RESERVED_PRESET_SLUGS` (i.e. shipped with the repo and
+      protected against save/overwrite/delete via the CLI or UI).
+
+    Errors on individual files are caught so one malformed preset
+    doesn't break listing the others.
+    """
     root = Path(root)
     if not root.is_dir():
         return []
@@ -298,6 +462,8 @@ def list_available_presets(root: Path = DEFAULT_PORTFOLIOS_DIR) -> List[dict]:
                     "path": str(p),
                     "n_assets": len(portfolio.assets),
                     "notes": portfolio.notes.splitlines()[0] if portfolio.notes else "",
+                    "cached_metrics": portfolio.cached_metrics,
+                    "is_reserved": p.stem in RESERVED_PRESET_SLUGS,
                 }
             )
         except Exception as e:  # pragma: no cover — defensive listing
@@ -308,6 +474,8 @@ def list_available_presets(root: Path = DEFAULT_PORTFOLIOS_DIR) -> List[dict]:
                     "path": str(p),
                     "n_assets": 0,
                     "notes": f"ERROR: {e}",
+                    "cached_metrics": None,
+                    "is_reserved": p.stem in RESERVED_PRESET_SLUGS,
                 }
             )
     return entries
