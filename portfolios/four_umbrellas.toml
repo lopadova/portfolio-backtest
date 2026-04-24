@@ -1,0 +1,113 @@
+# ==========================================================================
+# Four Umbrellas Portfolio — default preset
+# ==========================================================================
+#
+# Defensive multi-asset strategy from the Medium article
+# "The Four Umbrellas Portfolio". Mirrors the hardcoded WEIGHTS / EQUITY /
+# CRYPTO / BONDS / EM_SATELLITES / PENSION dicts in src/portfolio.py — the
+# consistency is enforced by tests/presets/test_four_umbrellas.py.
+#
+# The weights below are a BIT-EQUIVALENT flattening of the article's
+# nested sleeve structure (see src/portfolio.py for the tree). Total:
+#   pension   11.00%  → pension_bond 9.68% + pension_equity 1.32%
+#   gold      18.25%
+#   equity    46.72%  → put_write 13.10% + nasdaq_top30 11.70%
+#                       + hc_us_hedged 2.20% + hc_world 5.10%
+#                       + quality 7.30% + momentum 5.80% + ex_usa 1.50%
+#   crypto     3.65%  → btc 2.92% + crypto_basket 0.73%
+#   bonds      3.65%  → eur_gov_direct 0.365% + eur_gov_1_3y 1.6425%
+#                       + eur_gov_7_10y 1.6425%
+#   em_sat     0.73%  → india 0.365% + china 0.365%
+#   dbi        5.00%
+#   cash      11.00%
+# ==========================================================================
+
+name = "Four Umbrellas"
+notes = "Defensive multi-asset preset from the Medium article. See README for full context."
+options_overlay = true
+rebalance_months = [1, 7]
+transaction_cost_bps = 20.0
+
+# Pension — locked block (Italian-style bond-heavy pension fund)
+[[assets]]
+key    = "pension_bond"
+weight = 0.0968    # 0.88 * 0.11
+
+[[assets]]
+key    = "pension_equity"
+weight = 0.0132    # 0.12 * 0.11
+
+# Gold — unhedged physical proxy
+[[assets]]
+key    = "gold"
+weight = 0.1825
+
+# Equity sleeve (factor-tilted core)
+[[assets]]
+key    = "put_write"
+weight = 0.131
+
+[[assets]]
+key    = "nasdaq_top30"
+weight = 0.117
+
+[[assets]]
+key    = "hc_us_hedged"
+weight = 0.022
+
+[[assets]]
+key    = "hc_world"
+weight = 0.051
+
+[[assets]]
+key    = "quality"
+weight = 0.073
+
+[[assets]]
+key    = "momentum"
+weight = 0.058
+
+[[assets]]
+key    = "ex_usa"
+weight = 0.015
+
+# Crypto sleeve
+[[assets]]
+key    = "btc"
+weight = 0.0292    # 0.80 * 0.0365
+
+[[assets]]
+key    = "crypto_basket"
+weight = 0.0073    # 0.20 * 0.0365
+
+# Bonds sleeve (EUR gov proxies)
+[[assets]]
+key    = "eur_gov_direct"
+weight = 0.00365   # 0.10 * 0.0365
+
+[[assets]]
+key    = "eur_gov_1_3y"
+weight = 0.016425  # 0.45 * 0.0365
+
+[[assets]]
+key    = "eur_gov_7_10y"
+weight = 0.016425  # 0.45 * 0.0365
+
+# Emerging-market satellites
+[[assets]]
+key    = "india"
+weight = 0.00365   # 0.50 * 0.0073
+
+[[assets]]
+key    = "china"
+weight = 0.00365   # 0.50 * 0.0073
+
+# Managed futures (crisis alpha)
+[[assets]]
+key    = "dbi"
+weight = 0.05
+
+# Cash buffer (residual, earns 0% in conservative base model)
+[[assets]]
+key    = "cash"
+weight = 0.11
