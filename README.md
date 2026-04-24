@@ -10,11 +10,11 @@
 [![AI Analysis](https://img.shields.io/badge/AI-OpenRouter%20%7C%20OpenAI%20%7C%20Anthropic%20%7C%20Local-blueviolet.svg)](#ai)
 [![Article](https://img.shields.io/badge/Medium-Read%20the%20article-black.svg)](https://medium.com/@padosoft)
 
-> **The open-source, fund-manager-grade toolkit for backtesting any multi-asset portfolio over 20 years, stress-testing it with Monte Carlo + rolling windows + Markowitz frontier + Italian tax + FIRE projection, and getting an LLM to review the results — either from the CLI or through a beautiful Streamlit dashboard you can deploy in one click.**
+> **The open-source, fund-manager-grade toolkit for backtesting a multi-asset portfolio over 20 years, stress-testing it with Monte Carlo + rolling windows + Markowitz frontier + Italian tax + FIRE projection, and getting an LLM to review the results — either from the CLI or through a beautiful Streamlit dashboard you can deploy in one click.**
 
-If you are an investor, quant curious, aspiring FIRE retiree, or data scientist who wants to understand what *really* happens to *your* portfolio across GFC 2008, COVID 2020 and Stagflation 2022 — this repo is your sandbox. **Clone, `pip install`, and you're minutes away from a full report.** You can run it from the terminal, from a one-click dashboard, or deploy it publicly on Streamlit Cloud / HuggingFace Spaces.
+If you are an investor, quant curious, aspiring FIRE retiree, or data scientist who wants to understand what *really* happens to a defensive portfolio across GFC 2008, COVID 2020 and Stagflation 2022 — this repo is your sandbox. **Clone, `pip install`, and you're minutes away from a full report.** You can run it from the terminal, from a one-click dashboard, or deploy it publicly on Streamlit Cloud / HuggingFace Spaces.
 
-The engine ships with the **Four Umbrellas** defensive preset — the strategy from the companion Medium article [*"The Four Umbrellas Portfolio"*](https://medium.com/@padosoft) — as the default run. Every allocation decision, every metric, every chart in that article is reproducible here, and you can swap the preset for any custom composition from the available datasets.
+The engine currently runs the **Four Umbrellas** defensive preset — the strategy from the companion Medium article [*"The Four Umbrellas Portfolio"*](https://medium.com/@padosoft) — as the default (and only) portfolio; customization for now requires editing `src/portfolio.py`. Every allocation decision, every metric, every chart in that article is reproducible here. **Generic multi-portfolio support (CLI `--portfolio` flag, interactive asset picker, save/load) is tracked in the upcoming PR2+ refactor.**
 
 ![Streamlit dashboard — Charts tab with equity curve and drawdown](resources/charts.png)
 

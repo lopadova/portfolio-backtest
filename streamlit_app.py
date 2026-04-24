@@ -147,9 +147,10 @@ save_results = col_save.checkbox("💾 Save to output/", value=False,
 st.title("📊 Portfolio Backtest Engine — Interactive Backtest")
 st.markdown(
     """
-    > Multi-asset backtest engine. The default preset is **Four Umbrellas**, the
-    > defensive strategy from the companion Medium article; you can build any other
-    > portfolio from the available data.
+    > Multi-asset backtest engine. Currently runs the **Four Umbrellas** defensive
+    > preset from the companion Medium article; use the sidebar controls to explore
+    > macro tilts (gold/DBi), the options overlay, Monte Carlo, and benchmark
+    > comparisons. Broader custom-portfolio building is planned for a future update.
     > [Read the article](https://medium.com/@padosoft) · [GitHub](https://github.com/padosoft/portfolio-backtest) ·
     > **Disclaimer**: educational use only, not investment advice.
     """

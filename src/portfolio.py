@@ -1,5 +1,10 @@
 """
-Portfolio presets — includes the Four Umbrellas preset (default).
+Default portfolio preset — the Four Umbrellas configuration.
+
+This module currently defines a single hardcoded preset. Preset selection
+and additional presets (loaded from `portfolios/*.yml`) are planned in a
+later refactor (PR2) once the engine accepts a `Portfolio` object rather
+than reading WEIGHTS / EQUITY / … from module globals.
 
 All weights are on total NAV. The structure mirrors the article:
 

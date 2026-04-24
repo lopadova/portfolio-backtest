@@ -438,12 +438,13 @@ def _compute_reference_point_on_universe(
     series, which would include pension/cash/TER effects and wouldn't be
     directly comparable to the cloud + frontier).
 
-    Strategy: read the active preset's weights directly from portfolio.py
-    (WEIGHTS / EQUITY / CRYPTO / BONDS / EM_SATELLITES — currently the
-    Four Umbrellas preset), filter to only the sleeves present in
-    `sleeve_returns.columns`, and normalize to sum=1.0. This gives the
+    Strategy: read the current module-level weights from portfolio.py
+    (WEIGHTS / EQUITY / CRYPTO / BONDS / EM_SATELLITES — i.e. the current
+    global Four Umbrellas configuration), filter to only the sleeves present
+    in `sleeve_returns.columns`, and normalize to sum=1.0. This gives the
     reference "liquid-sleeves-only" position on the frontier's exact
-    coordinate system.
+    coordinate system. This will be generalized once preset selection
+    and/or Portfolio objects are introduced (PR2).
     """
     from . import portfolio as pf
 
