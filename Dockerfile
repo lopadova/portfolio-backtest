@@ -1,8 +1,8 @@
 # Dockerfile for HuggingFace Spaces / general cloud deployment of the
-# Four Umbrellas Streamlit dashboard.
+# Portfolio Backtest Engine Streamlit dashboard.
 #
-# Build: docker build -t four-umbrellas-dashboard .
-# Run:   docker run -p 7860:7860 four-umbrellas-dashboard
+# Build: docker build -t portfolio-backtest-dashboard .
+# Run:   docker run -p 7860:7860 portfolio-backtest-dashboard
 #
 # HuggingFace Spaces note: SDK must be "docker" in README metadata.
 # Default app port is 7860 on HF Spaces.

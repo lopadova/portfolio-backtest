@@ -107,11 +107,11 @@ class TestFrontierIntegration:
         assert path.exists()
         assert path.stat().st_size > 5000
 
-    def test_four_umbrellas_point_on_same_universe(self):
+    def test_reference_point_on_same_universe(self):
         """
-        Regression: Four Umbrellas reference must be computed on the SAME
-        sleeve universe and date index as the frontier (not a separate
-        full-portfolio simulation).
+        Regression: the reference portfolio (Four Umbrellas for the default
+        preset) must be computed on the SAME sleeve universe and date index
+        as the frontier (not a separate full-portfolio simulation).
         """
         bundle = _generate_synthetic_bundle()
         _, _, _, _, fu, asset_names = run_efficient_frontier(bundle, n_random=100)

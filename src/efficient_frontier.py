@@ -12,7 +12,7 @@ Three key portfolios highlighted:
 - Min Volatility
 - Max Return (100% of the highest-mean asset)
 
-Plus the "Four Umbrellas" target position for reference.
+Plus the active portfolio's reference position (Four Umbrellas for the default preset).
 
 References:
     Markowitz H. (1952) "Portfolio Selection", Journal of Finance 7(1):77-91.
@@ -426,23 +426,25 @@ def plot_efficient_frontier_interactive(
     return True
 
 
-def _compute_four_umbrellas_point_on_universe(
+def _compute_reference_point_on_universe(
     sleeve_returns: pd.DataFrame,
     annual_mean: pd.Series,
     annual_cov: pd.DataFrame,
     risk_free_rate: float,
 ) -> Optional[FrontierPoint]:
     """
-    Compute the Four Umbrellas reference point on the *same* sleeve universe
-    and date index used for the frontier (not on the full simulate_portfolio
+    Compute the reference portfolio's point on the *same* sleeve universe and
+    date index used for the frontier (not on the full simulate_portfolio
     series, which would include pension/cash/TER effects and wouldn't be
     directly comparable to the cloud + frontier).
 
-    Strategy: read the Four Umbrellas weights directly from portfolio.py
-    (WEIGHTS / EQUITY / CRYPTO / BONDS / EM_SATELLITES), filter to only the
-    sleeves present in `sleeve_returns.columns`, and normalize to sum=1.0.
-    This gives the Four Umbrellas "liquid-sleeves-only" position on the
-    frontier's exact coordinate system.
+    Strategy: read the current module-level weights from portfolio.py
+    (WEIGHTS / EQUITY / CRYPTO / BONDS / EM_SATELLITES — i.e. the current
+    global Four Umbrellas configuration), filter to only the sleeves present
+    in `sleeve_returns.columns`, and normalize to sum=1.0. This gives the
+    reference "liquid-sleeves-only" position on the frontier's exact
+    coordinate system. This will be generalized once preset selection
+    and/or Portfolio objects are introduced (PR2).
     """
     from . import portfolio as pf
 
@@ -523,7 +525,7 @@ def run_efficient_frontier(
     # Four Umbrellas reference — computed on the same universe as the frontier
     four_umbrellas_point = None
     if include_four_umbrellas_reference:
-        four_umbrellas_point = _compute_four_umbrellas_point_on_universe(
+        four_umbrellas_point = _compute_reference_point_on_universe(
             sleeve_returns, annual_mean, annual_cov, risk_free_rate,
         )
 

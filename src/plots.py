@@ -1,5 +1,5 @@
 """
-Chart generators for the Four Umbrellas backtest.
+Chart generators for the Portfolio Backtest Engine.
 
 All plots use matplotlib (no seaborn dependency) and save as high-DPI PNGs.
 Each function takes the minimum required data, produces one chart, saves,

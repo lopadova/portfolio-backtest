@@ -176,7 +176,7 @@ After downloading, validate with:
 
 def main():
     print("=" * 60)
-    print("Four Umbrellas backtest — automated data fetch")
+    print("Portfolio Backtest Engine — automated data fetch")
     print("=" * 60)
     print(f"\nOutput directory: {DATA_RAW.resolve()}\n")
 
