@@ -75,6 +75,7 @@ Jump to: [**Install**](#install) · [**CLI reference**](#cli) · [**GUI launch**
 - [🌟 Why you'll actually enjoy using this](#why)
 - [📋 CLI reference — everything you can do from the terminal](#cli)
 - [🖥️ Running the interactive dashboard locally](#dashboard-local)
+- [📸 Screenshots](#screenshots)
 - [🚀 Deploy the dashboard publicly](#deploy-public)
 - [🔥 FIRE calculator — plan your retirement](#fire)
 - [🤖 AI analysis — LLM-driven qualitative review](#ai)
@@ -520,6 +521,25 @@ Opens automatically at [http://localhost:8501](http://localhost:8501) in your de
   - 📈 **Charts** — 10+ inline charts (equity curve, drawdown, underwater, rolling Sharpe, crisis zoom, annual returns, return distribution, risk-return scatter, metrics comparison, correlation heatmap)
   - 🎲 **Monte Carlo** — Prudente/Mediana/Ottimista metric cards + fan chart
   - 🤖 **AI Analysis** — pick a provider (OpenRouter / OpenAI / Anthropic / Local), hit "Run AI analysis", get structured Italian feedback inline
+
+---
+
+<a id="screenshots"></a>
+## 📸 Screenshots
+
+A quick preview of what the Streamlit dashboard looks like when you run it locally.
+
+### Summary tab — statistics & crisis drawdowns
+
+Sidebar on the left (data source, date range, NAV, portfolio weight sliders, features, Monte Carlo, benchmarks, Run/Save actions). Main area shows the summary-statistics table (CAGR, vol, Sharpe, Sortino, Max DD, Calmar, Ulcer, CVaR, UPI, …) and the crisis peak-to-trough drawdowns (GFC 2008, COVID 2020, Stagflation 2022) for every portfolio side-by-side.
+
+![Streamlit dashboard — Summary tab with statistics and crisis drawdowns](resources/summary.png)
+
+### Charts tab — equity curve & drawdown
+
+The Charts tab shows the full set of inline charts (equity curve on a log scale, drawdown from prior peak, underwater periods, rolling Sharpe, crisis zooms, annual returns, return distribution, risk/return scatter, metrics comparison, correlation heatmap). Screenshot below shows the first two stacked.
+
+![Streamlit dashboard — Charts tab with equity curve and drawdown](resources/charts.png)
 
 ---
 
