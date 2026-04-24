@@ -158,3 +158,49 @@ class TestSummaryStatistics:
         assert stats["cagr_p10"] <= stats["cagr_median"]
         assert stats["cagr_median"] <= stats["cagr_p90"]
         assert stats["cagr_p90"] <= stats["cagr_best"]
+
+
+class TestRollingBacktestWithPortfolio:
+    """PR3: run_rolling_backtest accepts a Portfolio that is forwarded to
+    simulate_portfolio for every window."""
+
+    def test_custom_portfolio_runs(self):
+        from src.portfolio_model import AssetAllocation, Portfolio
+
+        bundle = _generate_synthetic_bundle()
+        p = Portfolio(
+            name="Toy50/50",
+            assets=[
+                AssetAllocation("gold", 0.5),
+                AssetAllocation("cash", 0.5),
+            ],
+        )
+        df = run_rolling_backtest(
+            bundle, portfolio=p, window_years=5, step_months=12,
+        )
+        assert len(df) > 0
+        assert "cagr" in df.columns
+
+    def test_custom_portfolio_produces_different_distribution_from_default(self):
+        """A 50/50 gold/cash portfolio should trace a CAGR distribution that
+        is not identical to the default Four Umbrellas preset (indirect proof
+        that the portfolio= argument is actually being used)."""
+        from src.portfolio_model import AssetAllocation, Portfolio
+
+        bundle = _generate_synthetic_bundle()
+        default = run_rolling_backtest(bundle, window_years=5, step_months=12)
+        custom_portfolio = Portfolio(
+            name="AllGold",
+            assets=[
+                AssetAllocation("gold", 0.9),
+                AssetAllocation("cash", 0.1),
+            ],
+        )
+        custom = run_rolling_backtest(
+            bundle, portfolio=custom_portfolio, window_years=5, step_months=12,
+        )
+        # Same number of windows, same dates
+        assert list(default.index) == list(custom.index)
+        # But the CAGR series should differ — the default has 19 assets, the
+        # custom has only 2. The two must not be element-wise identical.
+        assert not (default["cagr"] == custom["cagr"]).all()
