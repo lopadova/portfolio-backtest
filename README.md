@@ -2,7 +2,6 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 [![Python: 3.11–3.14](https://img.shields.io/badge/Python-3.11%E2%80%933.14-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/github/actions/workflow/status/padosoft/four-umbrellas-backtest/tests.yml?branch=main&label=tests)](https://github.com/padosoft/four-umbrellas-backtest/actions/workflows/tests.yml)
 [![Tests](https://img.shields.io/badge/tests-267%20passing-brightgreen.svg)](#testing)
 [![Status: v2.0](https://img.shields.io/badge/Status-v2.0-success.svg)](#whats-new)
 [![Streamlit](https://img.shields.io/badge/Dashboard-Streamlit-FF4B4B.svg)](#dashboard-local)
@@ -16,6 +15,8 @@
 If you are an investor, quant curious, aspiring FIRE retiree, or data scientist who wants to understand what *really* happens to a defensive portfolio across GFC 2008, COVID 2020 and Stagflation 2022 — this repo is your sandbox. **Clone, `pip install`, and you're minutes away from a full report.** You can run it from the terminal, from a one-click dashboard, or deploy it publicly on Streamlit Cloud / HuggingFace Spaces.
 
 This codebase is the open-source companion to the Medium article [*"The Four Umbrellas Portfolio"*](https://medium.com/@padosoft). Every allocation decision, every metric, every chart in the article is reproducible here.
+
+![Streamlit dashboard — Summary tab with statistics and crisis drawdowns](resources/summary.png)
 
 ---
 
