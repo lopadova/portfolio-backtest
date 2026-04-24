@@ -587,21 +587,30 @@ Opens automatically at [http://localhost:8501](http://localhost:8501) in your de
 
 ### What you can do in the dashboard
 
-- **Sidebar — configure the run:**
-  - Data source (real data from `data/raw/` or synthetic demo)
-  - Date range (slide start/end)
-  - Starting NAV
-  - Portfolio weight sliders (gold %, DBi %) — cash auto-rebalances to keep WEIGHTS sum = 1.0
-  - Options overlay toggle + budget slider
-  - Monte Carlo config (paths + horizon + block size)
-  - Benchmark multi-select
-  - **▶ Run backtest** button — executes the full pipeline
-  - **💾 Save to output/** checkbox — when ticked, results are persisted to `output/dashboard_run/`; otherwise session-only (ephemeral)
-- **Main area — tabbed results:**
-  - 📊 **Summary** — stats table + crisis drawdown table + configuration echo
-  - 📈 **Charts** — 10+ inline charts (equity curve, drawdown, underwater, rolling Sharpe, crisis zoom, annual returns, return distribution, risk-return scatter, metrics comparison, correlation heatmap)
-  - 🎲 **Monte Carlo** — Prudente/Mediana/Ottimista metric cards + fan chart
-  - 🤖 **AI Analysis** — pick a provider (OpenRouter / OpenAI / Anthropic / Local), hit "Run AI analysis", get structured Italian feedback inline
+Since PR4, the sidebar is just brand + links. Everything happens in the tabs at the top.
+
+**⚙️ Impostazioni tab — build your portfolio and run:**
+
+- **Carica preset** dropdown loads any `portfolios/*.toml` (Four Umbrellas ships by default).
+- **🎯 Portafoglio** — dynamic asset picker backed by `data/catalog.toml`:
+  - Search / select any asset (with its catalog key and start date)
+  - Add with a weight %
+  - Edit weights inline (each row editable via `st.data_editor`)
+  - 🗑️ per-row delete
+  - Live **Totale** badge: 🟢 at 100% ±0.2%, 🔴 otherwise — the Run button is disabled until the sum is valid.
+- **📅 Periodo** — date range picker. If your start predates any asset's data availability, a yellow ⚠️ warning identifies the constraining asset and the effective start date.
+- **⚙️ Motore** — starting NAV, options overlay toggle + budget (bps/year), rebalance frequency (Annual / Semi-annual / Quarterly / Monthly), transaction-cost bps.
+- **🎲 Analisi avanzate** — Monte Carlo toggle (paths + horizon + block). Efficient Frontier / FIRE / Walk-forward toggles are present but locked (🔒 arriva in PR5).
+- **Benchmarks** multi-select + **▶ Run backtest** + **💾 Save to output/**.
+
+**Post-run tabs (populated after a successful run):**
+
+- 📊 **Summary** — stats table + crisis-period drawdowns per portfolio.
+- 📈 **Charts** — 10 inline charts (equity curve, drawdown, underwater, rolling Sharpe/returns, crisis zoom, annual returns, return distribution, risk/return scatter, metrics comparison).
+- 🎲 **Monte Carlo** — Prudente / Mediana / Ottimista metric cards + fan chart.
+- 🤖 **AI Analysis** — pick a provider (OpenRouter / OpenAI / Anthropic / Local) and get structured Italian feedback inline.
+
+> **Note.** The screenshots in the next section are from the pre-PR4 sidebar layout; they'll be refreshed once PR5 brings Frontier / FIRE / walk-forward into the UI.
 
 ---
 
