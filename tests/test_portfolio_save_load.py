@@ -21,6 +21,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from src.portfolio import OptionsConfig
 from src.portfolio_model import (
     AssetAllocation,
     Portfolio,
@@ -261,3 +262,129 @@ class TestListAvailablePresetsMetrics:
         by_name = {e["name"]: e for e in entries}
         assert by_name["four_umbrellas"]["is_reserved"] is True
         assert by_name["my_custom"]["is_reserved"] is False
+
+
+# ----------------------------- options_config (PR7) -------------------------
+
+
+class TestOptionsConfigRoundTrip:
+    """PR7: Portfolio.options_config round-trips through TOML, with the
+    emitter writing only fields that differ from the OptionsConfig() defaults.
+    """
+
+    def test_no_options_section_when_none(self, tmp_path):
+        p = Portfolio(
+            name="Default options",
+            assets=[AssetAllocation("gold", 1.0)],
+            options_config=None,
+        )
+        path = tmp_path / "p.toml"
+        p.save_to(path)
+        text = path.read_text(encoding="utf-8")
+        assert "[options]" not in text
+        loaded = Portfolio.from_toml(path)
+        assert loaded.options_config is None
+
+    def test_no_options_section_when_all_defaults(self, tmp_path):
+        """A custom OptionsConfig that happens to equal the defaults
+        produces no [options] section — the emitter writes only deltas.
+        Round-trip yields options_config=None (semantic equivalent)."""
+        p = Portfolio(
+            name="Same as default",
+            assets=[AssetAllocation("gold", 1.0)],
+            options_config=OptionsConfig(),
+        )
+        path = tmp_path / "p.toml"
+        p.save_to(path)
+        text = path.read_text(encoding="utf-8")
+        assert "[options]" not in text
+        loaded = Portfolio.from_toml(path)
+        assert loaded.options_config is None
+
+    def test_round_trip_custom_budget(self, tmp_path):
+        cfg = OptionsConfig(budget_nav_per_year=0.005)
+        p = Portfolio(
+            name="High budget",
+            assets=[AssetAllocation("gold", 1.0)],
+            options_config=cfg,
+        )
+        path = tmp_path / "p.toml"
+        p.save_to(path)
+        text = path.read_text(encoding="utf-8")
+        assert "[options]" in text
+        assert "budget_nav_per_year" in text
+        # Other defaults must NOT be emitted
+        assert "hedge_ratio_of_equity" not in text
+        loaded = Portfolio.from_toml(path)
+        assert loaded.options_config is not None
+        assert loaded.options_config.budget_nav_per_year == 0.005
+        # All other fields fall back to defaults
+        assert loaded.options_config.hedge_ratio_of_equity == OptionsConfig().hedge_ratio_of_equity
+
+    def test_round_trip_multiple_overrides(self, tmp_path):
+        cfg = OptionsConfig(
+            budget_nav_per_year=0.005,
+            hedge_ratio_of_equity=0.50,
+            tenor_months=3,
+        )
+        p = Portfolio(
+            name="Aggressive",
+            assets=[AssetAllocation("gold", 1.0)],
+            options_config=cfg,
+        )
+        path = tmp_path / "p.toml"
+        p.save_to(path)
+        loaded = Portfolio.from_toml(path)
+        assert loaded.options_config.budget_nav_per_year == 0.005
+        assert loaded.options_config.hedge_ratio_of_equity == 0.50
+        assert loaded.options_config.tenor_months == 3
+
+    def test_round_trip_spy_qqq_split_tuple(self, tmp_path):
+        """spy_qqq_split is a Tuple[float, float] in the dataclass; TOML
+        natively gives us a list. The parser must coerce it back to a tuple."""
+        cfg = OptionsConfig(spy_qqq_split=(0.60, 0.40))
+        p = Portfolio(
+            name="X", assets=[AssetAllocation("gold", 1.0)],
+            options_config=cfg,
+        )
+        path = tmp_path / "p.toml"
+        p.save_to(path)
+        loaded = Portfolio.from_toml(path)
+        assert loaded.options_config.spy_qqq_split == (0.60, 0.40)
+        assert isinstance(loaded.options_config.spy_qqq_split, tuple)
+
+    def test_unknown_options_field_rejected(self, tmp_path):
+        path = tmp_path / "bad.toml"
+        path.write_text(
+            'name = "X"\n'
+            'options_overlay = false\n'
+            'rebalance_months = [1, 7]\n'
+            'transaction_cost_bps = 20.0\n'
+            '\n'
+            '[[assets]]\n'
+            'key = "gold"\n'
+            'weight = 1.0\n'
+            '\n'
+            '[options]\n'
+            'unknown_typo = 0.5\n',
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="unknown field 'unknown_typo'"):
+            Portfolio.from_toml(path)
+
+    def test_options_section_not_a_table_rejected(self, tmp_path):
+        path = tmp_path / "bad.toml"
+        path.write_text(
+            'name = "X"\n'
+            'options_overlay = false\n'
+            'rebalance_months = [1, 7]\n'
+            'transaction_cost_bps = 20.0\n'
+            'options = "should be a table not a string"\n'
+            '\n'
+            '[[assets]]\n'
+            'key = "gold"\n'
+            'weight = 1.0\n',
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="must be a TOML table"):
+            Portfolio.from_toml(path)

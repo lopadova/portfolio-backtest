@@ -33,6 +33,7 @@ hand-rolled emitter in ``_dump_toml`` — keeps this module stdlib-only.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 import tomllib
@@ -42,6 +43,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
+
+from .portfolio import OptionsConfig
 
 _WEIGHTS_SUM_TOLERANCE = 0.002
 DEFAULT_PORTFOLIOS_DIR = Path(__file__).resolve().parent.parent / "portfolios"
@@ -122,6 +125,11 @@ class Portfolio:
     # PR6 — optional cached metrics from the last successful simulation.
     # Never enters `validate()` (it's auxiliary metadata, not engine config).
     cached_metrics: Optional[PortfolioMetricsCache] = None
+    # PR7 — optional OptionsConfig override. When None, the engine falls
+    # back to the global ``src.portfolio.OPTIONS`` (legacy behavior). When
+    # set, it's an isolated copy that the user / sweep / saved preset
+    # carries around without touching globals.
+    options_config: Optional[OptionsConfig] = None
 
     # ---------------------------------------------------------------- validate
     def validate(self) -> None:
@@ -241,6 +249,7 @@ class Portfolio:
                 f"got {data.get('transaction_cost_bps')!r}: {exc}"
             ) from exc
         cached_metrics = _parse_metrics_section(data.get("metrics"))
+        options_config = _parse_options_section(data.get("options"))
         p = cls(
             name=str(data["name"]),
             assets=assets,
@@ -249,6 +258,7 @@ class Portfolio:
             transaction_cost_bps=transaction_cost_bps,
             notes=str(data.get("notes", "")),
             cached_metrics=cached_metrics,
+            options_config=options_config,
         )
         p.validate()
         return p
@@ -384,7 +394,78 @@ def _dump_toml(p: Portfolio) -> str:
         lines.append(f'period_start = "{m.period_start.date().isoformat()}"')
         lines.append(f'period_end = "{m.period_end.date().isoformat()}"')
         lines.append(f'run_timestamp = "{m.run_timestamp.isoformat(timespec="seconds")}"')
+    if p.options_config is not None:
+        opts_lines = _dump_options_section(p.options_config)
+        if opts_lines:  # only emit when there are non-default fields to record
+            lines.append("")
+            lines.append("[options]")
+            lines.extend(opts_lines)
     return "\n".join(lines) + "\n"
+
+
+def _dump_options_section(cfg: OptionsConfig) -> List[str]:
+    """Emit ONLY the fields of ``cfg`` that differ from ``OptionsConfig()``
+    defaults. Keeps preset TOMLs minimal: a user who just wants the overlay
+    on but nothing custom doesn't end up with a 10-line ``[options]`` block.
+    Returns an empty list when ``cfg`` matches the defaults exactly."""
+    default = OptionsConfig()
+    out: List[str] = []
+    for f in dataclasses.fields(cfg):
+        cur = getattr(cfg, f.name)
+        dflt = getattr(default, f.name)
+        if cur == dflt:
+            continue
+        # Format per type. Tuples become inline arrays; bools lower-case;
+        # everything else relies on Python's str() (TOML-compatible for
+        # ints/floats).
+        if isinstance(cur, bool):
+            out.append(f"{f.name} = {'true' if cur else 'false'}")
+        elif isinstance(cur, tuple):
+            out.append(f"{f.name} = [{', '.join(str(v) for v in cur)}]")
+        elif isinstance(cur, str):
+            out.append(f'{f.name} = "{_escape_toml_basic_string(cur)}"')
+        else:
+            out.append(f"{f.name} = {cur}")
+    return out
+
+
+def _parse_options_section(section: Any) -> Optional[OptionsConfig]:
+    """Parse the optional ``[options]`` section into an :class:`OptionsConfig`.
+
+    Starts from the dataclass defaults and overrides only the fields
+    present in the TOML — symmetric with the emitter, which writes only
+    non-default fields. Returns ``None`` when the section is absent.
+
+    Raises ``ValueError`` for unknown fields or wrong types so a hand-edit
+    typo doesn't silently drop data on the floor (Theme 3 in LESSONS.md).
+    """
+    if section is None:
+        return None
+    if not isinstance(section, dict):
+        raise ValueError("Portfolio [options] section must be a TOML table")
+    valid_fields = {f.name for f in dataclasses.fields(OptionsConfig)}
+    overrides: Dict[str, Any] = {}
+    for key, value in section.items():
+        if key not in valid_fields:
+            raise ValueError(
+                f"Portfolio [options] unknown field {key!r}. "
+                f"Valid fields: {sorted(valid_fields)}"
+            )
+        if key == "spy_qqq_split":
+            # TOML lists become Python lists; the dataclass expects a tuple.
+            if not isinstance(value, list) or len(value) != 2:
+                raise ValueError(
+                    f"[options].spy_qqq_split must be a 2-element list, got {value!r}"
+                )
+            overrides[key] = tuple(float(v) for v in value)
+        else:
+            overrides[key] = value
+    try:
+        return dataclasses.replace(OptionsConfig(), **overrides)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Portfolio [options] section has a badly-typed field: {exc}"
+        ) from exc
 
 
 def _parse_metrics_section(section: Any) -> Optional[PortfolioMetricsCache]:
