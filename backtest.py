@@ -319,8 +319,12 @@ def run_monte_carlo(returns_dict: Dict[str, pd.Series], args, output_dir: Path):
     return stats
 
 
-def run_sensitivity(args, bundle=None):
-    """Run sensitivity analysis for one parameter."""
+def run_sensitivity(args, bundle=None, portfolio: Portfolio | None = None):
+    """Run sensitivity analysis for one parameter.
+
+    ``portfolio`` is forwarded to ``run_sensitivity_sweep``. When the user
+    selected the default preset (or no --portfolio at all), we pass ``None``
+    so the legacy globals path is used — byte-identical to pre-PR3 output."""
     from src.sensitivity import run_sensitivity_sweep, plot_sensitivity_results, parse_range_to_values
 
     if bundle is None:
@@ -330,10 +334,16 @@ def run_sensitivity(args, bundle=None):
         bundle = bundle.slice(start, end)
 
     values = parse_range_to_values(args.range, args.step, args.values)
+    engine_portfolio = _engine_portfolio(args, portfolio) if portfolio is not None else None
+
     print(f"\nRunning sensitivity sweep on parameter '{args.sensitivity}':")
     print(f"  Values: {[f'{v:.4f}' for v in values]}")
+    if engine_portfolio is not None:
+        print(f"  Portfolio: {engine_portfolio.name} ({len(engine_portfolio.assets)} assets)")
 
-    df = run_sensitivity_sweep(bundle, args.sensitivity, values)
+    df = run_sensitivity_sweep(
+        bundle, args.sensitivity, values, portfolio=engine_portfolio,
+    )
 
     output_dir = Path(args.output_dir) / "sensitivity"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -416,31 +426,12 @@ def _is_default_portfolio_spec(spec: str | None) -> bool:
     return False
 
 
-def _warn_if_custom_portfolio_with_advanced_analysis(args) -> None:
-    """PR2 coexistence warning. ``--sensitivity`` / ``--rolling-window`` /
-    ``--efficient-frontier`` still read from the src.portfolio globals in
-    this phase (PR3 wires them to accept a Portfolio). If the user combines
-    a custom portfolio with one of these flags, tell them clearly that the
-    advanced analysis will reflect the DEFAULT preset, not their custom
-    portfolio, so they're not silently misled.
-
-    Detection is based on the CLI spec (``args.portfolio``), not on the
-    Portfolio's display name — see ``_is_default_portfolio_spec``.
-    """
-    spec = getattr(args, "portfolio", None)
-    is_custom = not _is_default_portfolio_spec(spec)
-    advanced_requested = any([
-        args.sensitivity, args.rolling_window, args.efficient_frontier,
-    ])
-    if is_custom and advanced_requested:
-        print(
-            "\nWARNING: --sensitivity / --rolling-window / --efficient-frontier "
-            f"currently use the Four Umbrellas preset, not your custom portfolio "
-            f"({spec!r}). This limitation will be lifted in PR3. "
-            "The main backtest (no-options / options overlay / benchmarks) "
-            "DOES use your custom portfolio.\n",
-            file=sys.stderr,
-        )
+def _engine_portfolio(args, portfolio: Portfolio) -> Portfolio | None:
+    """Helper for the 3 advanced-analysis blocks. Returns the Portfolio to
+    pass into the engine, or ``None`` to invoke the legacy globals path
+    (needed when the user selected the default preset — that way the
+    byte-identical-to-main guarantee holds on advanced analyses too)."""
+    return None if _is_default_portfolio_spec(getattr(args, "portfolio", None)) else portfolio
 
 
 def main():
@@ -453,7 +444,6 @@ def main():
 
     # Resolve the requested portfolio (default: four_umbrellas preset).
     portfolio = _resolve_portfolio_or_exit(args.portfolio)
-    _warn_if_custom_portfolio_with_advanced_analysis(args)
 
     # Load data
     print(f"Loading data (synthetic={args.synthetic}) ...")
@@ -464,7 +454,7 @@ def main():
     print(f"Loaded {len(bundle.monthly_returns_eur)} months of data")
 
     if args.sensitivity:
-        run_sensitivity(args, bundle=bundle)
+        run_sensitivity(args, bundle=bundle, portfolio=portfolio)
         return
 
     if args.efficient_frontier:
@@ -472,13 +462,17 @@ def main():
             run_efficient_frontier, plot_efficient_frontier,
             plot_efficient_frontier_interactive,
         )
+        engine_portfolio = _engine_portfolio(args, portfolio)
         print(f"\nRunning efficient frontier analysis ({args.n_random:,} random portfolios + Markowitz)...")
-        # Note: the Four Umbrellas reference is now computed inside
-        # run_efficient_frontier() on the *same* sleeve universe as the
-        # frontier — no need to pass a full-portfolio return series (which
-        # would include pension/cash effects that aren't comparable).
+        if engine_portfolio is not None:
+            print(f"  Universe: {engine_portfolio.name} ({len(engine_portfolio.assets) - 1} risky assets, cash excluded)")
+        # Reference point is computed inside run_efficient_frontier on the
+        # *same* sleeve universe as the frontier. When engine_portfolio is
+        # None, the legacy Four Umbrellas globals are used; otherwise the
+        # reference is the user's Portfolio normalized to the cash-free
+        # universe.
         random_eval_df, weights_matrix, key_portfolios, frontier_df, fu_point, asset_names = run_efficient_frontier(
-            bundle, n_random=args.n_random,
+            bundle, portfolio=engine_portfolio, n_random=args.n_random,
         )
         output_dir = Path(args.output_dir) / "efficient_frontier"
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -503,7 +497,10 @@ def main():
                   f"vol {point.volatility*100:5.2f}%, "
                   f"Sharpe {point.sharpe:.3f}")
         if fu_point is not None:
-            print(f"  {'Four Umbrellas':15s}: "
+            # Label reflects which reference point was used (custom Portfolio
+            # if provided, else the Four Umbrellas preset from globals).
+            ref_label = engine_portfolio.name if engine_portfolio is not None else "Four Umbrellas"
+            print(f"  {ref_label:15s}: "
                   f"return {fu_point.expected_return*100:6.2f}%, "
                   f"vol {fu_point.volatility*100:5.2f}%, "
                   f"Sharpe {fu_point.sharpe:.3f}")
@@ -512,8 +509,16 @@ def main():
 
     if args.rolling_window:
         from src.rolling_window import run_rolling_backtest, plot_rolling_window_results, summary_statistics
+        engine_portfolio = _engine_portfolio(args, portfolio)
         print(f"\nRunning rolling {args.window_years}-year window backtest (step: {args.step_months} months)...")
-        df = run_rolling_backtest(bundle, window_years=args.window_years, step_months=args.step_months)
+        if engine_portfolio is not None:
+            print(f"  Portfolio: {engine_portfolio.name} ({len(engine_portfolio.assets)} assets)")
+        df = run_rolling_backtest(
+            bundle,
+            portfolio=engine_portfolio,
+            window_years=args.window_years,
+            step_months=args.step_months,
+        )
         output_dir = Path(args.output_dir) / "rolling_window"
         output_dir.mkdir(parents=True, exist_ok=True)
         csv_path = output_dir / f"rolling_{args.window_years}y.csv"

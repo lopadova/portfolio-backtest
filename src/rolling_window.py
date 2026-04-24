@@ -23,7 +23,10 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.ticker as mtick
 
+from typing import Optional
+
 from .data_loader import DataBundle
+from .portfolio_model import Portfolio
 from .rebalance import simulate_portfolio
 from .metrics import compute_all
 
@@ -43,14 +46,20 @@ class WindowResult:
 
 def run_rolling_backtest(
     bundle: DataBundle,
+    portfolio: Optional[Portfolio] = None,
     window_years: int = 10,
     step_months: int = 1,
     risk_free_rate: float = 0.02,
 ) -> pd.DataFrame:
     """
-    Run the core portfolio simulation on every rolling window of `window_years`
-    years, stepping by `step_months` months. Returns a DataFrame indexed by
+    Run the portfolio simulation on every rolling window of ``window_years``
+    years, stepping by ``step_months`` months. Returns a DataFrame indexed by
     window start date with summary statistics.
+
+    ``portfolio`` is forwarded to ``simulate_portfolio`` as the ``portfolio=``
+    kw-only arg. When ``None`` (legacy behavior), the engine uses the
+    src.portfolio globals (Four Umbrellas preset). When provided, every
+    window is simulated against that Portfolio.
 
     Raises ValueError if:
       - window_years is not a positive integer
@@ -87,7 +96,9 @@ def run_rolling_backtest(
     while start_idx + window_months <= total_months:
         end_idx = start_idx + window_months
         window_data = monthly_returns.iloc[start_idx:end_idx]
-        returns = simulate_portfolio(window_data, btc_activation, apply_ter=True)
+        returns = simulate_portfolio(
+            window_data, btc_activation, apply_ter=True, portfolio=portfolio,
+        )
         stats = compute_all("window", returns, risk_free_rate)
         results.append(WindowResult(
             start_date=window_data.index[0],

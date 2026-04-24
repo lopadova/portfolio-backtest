@@ -88,93 +88,59 @@ class TestListPresets:
         assert "No presets found" in out
 
 
-class TestAdvancedAnalysisWarning:
-    """The warning guard about custom-portfolio + --sensitivity/etc.
+class TestEnginePortfolioDispatch:
+    """PR3: ``_engine_portfolio`` returns the user's Portfolio when the CLI
+    spec is not the default preset, and ``None`` otherwise. The None case
+    sends the advanced-analysis engines down the legacy globals path,
+    preserving byte-identical output for the default preset."""
 
-    Post-Copilot-review: detection is based on the CLI spec
-    (``args.portfolio``), not on the loaded Portfolio's display name,
-    because display names are user-controlled and could spoof 'Four
-    Umbrellas' on an otherwise-custom preset."""
-
-    def _args(self, portfolio=None, **overrides):
-        """Build a minimal argparse Namespace with the flags the warning checks."""
+    def _args(self, portfolio=None):
         import argparse
-        ns = argparse.Namespace(
-            portfolio=portfolio,
-            sensitivity=None,
-            rolling_window=False,
-            efficient_frontier=False,
-        )
-        for k, v in overrides.items():
-            setattr(ns, k, v)
-        return ns
+        return argparse.Namespace(portfolio=portfolio)
 
-    def test_silent_on_default_preset(self, capsys):
-        backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
-            self._args(portfolio=None, sensitivity="gold")
-        )
-        assert capsys.readouterr().err == ""
+    def test_none_for_default_none_spec(self):
+        p = backtest_mod._resolve_portfolio_or_exit(None)
+        assert backtest_mod._engine_portfolio(self._args(portfolio=None), p) is None
 
-    def test_silent_on_explicit_default_by_name(self, capsys):
-        backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
-            self._args(portfolio="four_umbrellas", sensitivity="gold")
-        )
-        assert capsys.readouterr().err == ""
+    def test_none_for_bare_name_default(self):
+        p = backtest_mod._resolve_portfolio_or_exit("four_umbrellas")
+        assert backtest_mod._engine_portfolio(self._args(portfolio="four_umbrellas"), p) is None
 
-    def test_silent_on_explicit_default_by_path(self, capsys):
+    def test_none_for_explicit_path_to_default(self):
         path = str(PROJECT_ROOT / "portfolios" / "four_umbrellas.toml")
-        backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
-            self._args(portfolio=path, sensitivity="gold")
-        )
-        assert capsys.readouterr().err == ""
+        p = backtest_mod._resolve_portfolio_or_exit(path)
+        assert backtest_mod._engine_portfolio(self._args(portfolio=path), p) is None
 
-    def test_silent_on_default_preset_without_advanced(self, capsys):
-        backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
-            self._args(portfolio=None)
-        )
-        assert capsys.readouterr().err == ""
-
-    def test_silent_on_custom_without_advanced(self, capsys):
+    def test_returns_portfolio_for_custom_inline_json(self):
         raw = '{"name":"Toy","assets":[{"key":"gold","weight":0.5},{"key":"cash","weight":0.5}]}'
-        backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
-            self._args(portfolio=raw)
-        )
-        assert capsys.readouterr().err == ""
+        p = backtest_mod._resolve_portfolio_or_exit(raw)
+        result = backtest_mod._engine_portfolio(self._args(portfolio=raw), p)
+        assert result is p
+        assert result.name == "Toy"
 
-    def test_warns_on_custom_with_sensitivity(self, capsys):
-        raw = '{"name":"Toy","assets":[{"key":"gold","weight":0.5},{"key":"cash","weight":0.5}]}'
-        backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
-            self._args(portfolio=raw, sensitivity="gold")
+    def test_returns_portfolio_for_custom_named_preset(self, tmp_path, monkeypatch):
+        # Create an ad-hoc preset in a tmp root and redirect the default root
+        custom_toml = tmp_path / "custom.toml"
+        custom_toml.write_text(
+            'name = "Custom"\n'
+            'assets = [\n'
+            '  { key = "gold", weight = 0.5 },\n'
+            '  { key = "cash", weight = 0.5 },\n'
+            ']\n',
+            encoding="utf-8",
         )
-        err = capsys.readouterr().err
-        assert "WARNING" in err
-        assert "PR3" in err
+        spec = str(custom_toml)
+        p = backtest_mod._resolve_portfolio_or_exit(spec)
+        result = backtest_mod._engine_portfolio(self._args(portfolio=spec), p)
+        assert result is p
+        assert result.name == "Custom"
 
-    def test_warns_on_custom_with_rolling_window(self, capsys):
-        raw = '{"name":"Toy","assets":[{"key":"gold","weight":0.5},{"key":"cash","weight":0.5}]}'
-        backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
-            self._args(portfolio=raw, rolling_window=True)
+    def test_no_longer_exposes_removed_warning_function(self):
+        """PR3 removed _warn_if_custom_portfolio_with_advanced_analysis.
+        Make sure the symbol is gone so nobody depends on it accidentally."""
+        assert not hasattr(
+            backtest_mod, "_warn_if_custom_portfolio_with_advanced_analysis"
         )
-        err = capsys.readouterr().err
-        assert "WARNING" in err
-
-    def test_warns_on_custom_with_efficient_frontier(self, capsys):
-        raw = '{"name":"Toy","assets":[{"key":"gold","weight":0.5},{"key":"cash","weight":0.5}]}'
-        backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
-            self._args(portfolio=raw, efficient_frontier=True)
-        )
-        err = capsys.readouterr().err
-        assert "WARNING" in err
-
-    def test_custom_name_spoofing_still_warns(self, capsys):
-        """Regression: a custom preset that sets name='Four Umbrellas' but is
-        passed via inline JSON must STILL trigger the warning — detection is
-        from the CLI spec, not the display name."""
-        spoofed = '{"name":"Four Umbrellas","assets":[{"key":"gold","weight":1.0}]}'
-        backtest_mod._warn_if_custom_portfolio_with_advanced_analysis(
-            self._args(portfolio=spoofed, sensitivity="gold")
-        )
-        assert "WARNING" in capsys.readouterr().err
 
 
 class TestIsDefaultPortfolioSpec:

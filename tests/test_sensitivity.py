@@ -189,3 +189,109 @@ class TestSupportedParams:
         expected = {"gold", "dbi", "options_budget", "rebalance_freq",
                     "put_write", "nasdaq_top30", "momentum", "quality"}
         assert set(SUPPORTED_PARAMS.keys()) == expected
+
+
+class TestSweepWithCustomPortfolio:
+    """PR3: run_sensitivity_sweep accepts a Portfolio and sweeps on a COPY,
+    never touching the src.portfolio globals."""
+
+    def _toy_portfolio(self):
+        from src.portfolio_model import AssetAllocation, Portfolio
+        return Portfolio(
+            name="Toy",
+            assets=[
+                AssetAllocation("gold", 0.3),
+                AssetAllocation("quality", 0.5),
+                AssetAllocation("cash", 0.2),
+            ],
+        )
+
+    def test_sweep_on_custom_portfolio_runs(self):
+        bundle = _generate_synthetic_bundle()
+        df = run_sensitivity_sweep(
+            bundle, "gold", [0.10, 0.20, 0.30],
+            portfolio=self._toy_portfolio(),
+        )
+        assert len(df) == 3
+        assert list(df.index) == [0.10, 0.20, 0.30]
+        # CAGR should move as gold weight changes
+        assert df["cagr"].nunique() > 1
+
+    def test_sweep_custom_portfolio_does_not_mutate_globals(self):
+        """Critical PR3 invariant: the custom-portfolio sweep path never
+        touches the module globals. Unlike the legacy path which snapshots
+        and restores, this path simply doesn't write to them."""
+        bundle = _generate_synthetic_bundle()
+        before_gold = portfolio_cfg.WEIGHTS["gold"]
+        before_cash = portfolio_cfg.WEIGHTS["cash"]
+        before_quality = portfolio_cfg.EQUITY["quality"]
+
+        run_sensitivity_sweep(
+            bundle, "gold", [0.10, 0.30, 0.50],
+            portfolio=self._toy_portfolio(),
+        )
+
+        assert portfolio_cfg.WEIGHTS["gold"] == before_gold
+        assert portfolio_cfg.WEIGHTS["cash"] == before_cash
+        assert portfolio_cfg.EQUITY["quality"] == before_quality
+
+    def test_sweep_custom_portfolio_does_not_mutate_input(self):
+        """The input Portfolio object is not modified — we operate on copies."""
+        bundle = _generate_synthetic_bundle()
+        p = self._toy_portfolio()
+        original_weights = tuple((a.key, a.weight) for a in p.assets)
+        run_sensitivity_sweep(bundle, "gold", [0.10, 0.20], portfolio=p)
+        assert tuple((a.key, a.weight) for a in p.assets) == original_weights
+
+    def test_sweep_custom_portfolio_missing_asset_errors(self):
+        """Sweeping a param that doesn't correspond to an asset in the
+        portfolio raises a clear ValueError naming the missing asset."""
+        from src.portfolio_model import AssetAllocation, Portfolio
+        bundle = _generate_synthetic_bundle()
+        # A portfolio without 'put_write' — sweeping it must fail
+        p = Portfolio(
+            name="NoPutWrite",
+            assets=[
+                AssetAllocation("gold", 0.5),
+                AssetAllocation("cash", 0.5),
+            ],
+        )
+        with pytest.raises(ValueError, match="no asset named 'put_write'"):
+            run_sensitivity_sweep(bundle, "put_write", [0.10, 0.15], portfolio=p)
+
+    def test_sweep_custom_portfolio_without_cash_errors(self):
+        """The generic path absorbs the delta into cash. If the portfolio has
+        no cash sleeve, the sweep must fail loudly rather than silently
+        breaking the 100% weight sum."""
+        from src.portfolio_model import AssetAllocation, Portfolio
+        bundle = _generate_synthetic_bundle()
+        p = Portfolio(
+            name="NoCash",
+            assets=[
+                AssetAllocation("gold", 0.6),
+                AssetAllocation("quality", 0.4),
+            ],
+        )
+        with pytest.raises(ValueError, match="no 'cash' sleeve"):
+            run_sensitivity_sweep(bundle, "gold", [0.10], portfolio=p)
+
+    def test_sweep_custom_portfolio_options_budget_not_supported(self):
+        """options_budget on a custom portfolio is explicitly blocked in PR3
+        — PR5 will introduce a per-Portfolio OptionsConfig that enables it."""
+        bundle = _generate_synthetic_bundle()
+        with pytest.raises(NotImplementedError, match="PR5"):
+            run_sensitivity_sweep(
+                bundle, "options_budget", [0.003, 0.005],
+                portfolio=self._toy_portfolio(),
+            )
+
+    def test_sweep_custom_portfolio_rebalance_freq(self):
+        """rebalance_freq IS supported on the generic path — rebalance_months
+        sits on the Portfolio dataclass so we can vary it without touching
+        globals."""
+        bundle = _generate_synthetic_bundle()
+        df = run_sensitivity_sweep(
+            bundle, "rebalance_freq", [1, 2, 4],
+            portfolio=self._toy_portfolio(),
+        )
+        assert len(df) == 3

@@ -140,6 +140,89 @@ class TestFrontierIntegration:
             assert abs(total_w - 1.0) < 1e-3
 
 
+class TestRunEfficientFrontierWithPortfolio:
+    """PR3: the frontier can be restricted to a user-built Portfolio's asset
+    universe. Cash is excluded from the frontier (it's the residual
+    risk-free sleeve, not an optimization degree of freedom)."""
+
+    def test_frontier_uses_portfolio_universe(self):
+        from src.portfolio_model import AssetAllocation, Portfolio
+
+        bundle = _generate_synthetic_bundle()
+        p = Portfolio(
+            name="Three-asset toy",
+            assets=[
+                AssetAllocation("gold", 0.4),
+                AssetAllocation("quality", 0.4),
+                AssetAllocation("cash", 0.2),
+            ],
+        )
+        _, _, _, _, ref, asset_names = run_efficient_frontier(
+            bundle, portfolio=p, n_random=200,
+        )
+        # Universe = gold + quality (cash excluded)
+        assert set(asset_names) == {"gold", "quality"}
+        # Reference point reflects the portfolio's own composition
+        assert ref is not None
+        # Weights in the reference are normalized over the frontier universe
+        # (which drops cash), so gold/quality should sum to ~1.0
+        assert set(ref.weights.keys()) == {"gold", "quality"}
+        assert abs(sum(ref.weights.values()) - 1.0) < 1e-6
+        # gold/(gold+quality) = 0.4/0.8 = 0.5
+        assert ref.weights["gold"] == pytest.approx(0.5)
+        assert ref.weights["quality"] == pytest.approx(0.5)
+        # Label uses the portfolio name
+        assert "Three-asset toy" in ref.label
+
+    def test_reference_point_matches_user_portfolio_weights(self):
+        """Proportions should be preserved: if the portfolio has 60% gold /
+        30% quality / 10% cash, the reference point (cash-free) should be
+        2/3 gold, 1/3 quality."""
+        from src.portfolio_model import AssetAllocation, Portfolio
+
+        bundle = _generate_synthetic_bundle()
+        p = Portfolio(
+            name="Unequal",
+            assets=[
+                AssetAllocation("gold", 0.6),
+                AssetAllocation("quality", 0.3),
+                AssetAllocation("cash", 0.1),
+            ],
+        )
+        _, _, _, _, ref, asset_names = run_efficient_frontier(
+            bundle, portfolio=p, n_random=100,
+        )
+        assert ref is not None
+        assert ref.weights["gold"] == pytest.approx(0.6 / 0.9)
+        assert ref.weights["quality"] == pytest.approx(0.3 / 0.9)
+
+    def test_portfolio_with_asset_missing_from_bundle_raises(self):
+        """Attempting to run the frontier on a Portfolio whose assets are not
+        in the bundle must fail loudly, not silently drop assets."""
+        from src.portfolio_model import AssetAllocation, Portfolio
+
+        bundle = _generate_synthetic_bundle()
+        p = Portfolio(
+            name="Unknown",
+            assets=[
+                AssetAllocation("not_a_real_key", 0.5),
+                AssetAllocation("cash", 0.5),
+            ],
+        )
+        with pytest.raises(ValueError, match="None of the portfolio assets"):
+            run_efficient_frontier(bundle, portfolio=p, n_random=10)
+
+    def test_legacy_call_still_works(self):
+        """Passing no portfolio= yields the pre-PR3 behavior exactly:
+        universe = bundle minus pension, reference = Four Umbrellas globals."""
+        bundle = _generate_synthetic_bundle()
+        _, _, _, _, ref, asset_names = run_efficient_frontier(bundle, n_random=100)
+        assert "pension_bond" not in asset_names
+        assert "pension_equity" not in asset_names
+        assert ref is not None
+        assert "Four Umbrellas" in ref.label
+
+
 class TestInteractiveChart:
     """Tests for the Plotly-based interactive frontier chart."""
 
