@@ -327,9 +327,32 @@ key    = "cash"
 weight = 0.2
 ```
 
-### Current limitation — advanced analyses
+### Combine `--portfolio` with the advanced analyses
 
-`--sensitivity` / `--rolling-window` / `--efficient-frontier` still reflect the **default Four Umbrellas preset** in this phase (they read the legacy module globals). If you combine a custom `--portfolio` with any of those flags, the CLI prints a clear warning so you're not silently misled. The main backtest (no-options baseline + options overlay + benchmarks) DOES use your custom portfolio fully. Full decoupling of the advanced analyses is tracked in PR3.
+Since PR3 every advanced analysis accepts the `--portfolio` spec and
+operates on that portfolio — no more "uses the default preset" warning:
+
+```bash
+# Efficient frontier restricted to your portfolio's asset universe
+python backtest.py --synthetic --portfolio my_strategy --efficient-frontier
+
+# Rolling 10-year windows simulated against your portfolio
+python backtest.py --synthetic --portfolio my_strategy --rolling-window --window-years 10
+
+# Sensitivity sweep on a weight inside your portfolio (not the globals)
+python backtest.py --synthetic --portfolio my_strategy --sensitivity gold --range 0.10 0.25 --step 0.05
+```
+
+Two caveats on the sensitivity path when a custom portfolio is in use:
+
+- **`--sensitivity options_budget` on a custom portfolio** is not yet
+  supported — the options overlay still reads the global `OPTIONS` config;
+  a per-portfolio `OptionsConfig` lands in PR5. Workaround: sweep
+  `options_budget` on the default preset (no `--portfolio`).
+- **Weight-like params** (`gold`, `dbi`, `put_write`, `nasdaq_top30`,
+  `momentum`, `quality`) require the portfolio to contain both a matching
+  asset and an explicit `cash` sleeve (the delta is absorbed by cash).
+  The error message points at the specific missing piece.
 
 ---
 
