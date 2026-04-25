@@ -1429,11 +1429,26 @@ pytest --cov=src                         # optional: check coverage delta
 # 5. Verify the synthetic-data pipeline still runs end-to-end
 python backtest.py --synthetic --start 2023-01-31 --end 2024-12-31
 
-# 6. Push and open a PR against main (CI will run the full matrix: OS × Python version)
+# 6. (Optional but recommended) Install the local pre-commit hooks
+#    so commit-time blocks unused imports + non-ASCII print() literals
+pip install pre-commit
+pre-commit install
+
+# 7. Push and open a PR against main (CI will run the full matrix +
+#    a `lint` job: ruff F401 + ASCII-only print check)
 git push origin feat/short-descriptive-name
 ```
 
-**PRs must pass CI to be merged.** The CI runs on Ubuntu / macOS / Windows × Python 3.11 / 3.12. If your PR adds new behavior, please add corresponding unit tests — see [Testing](#testing) for conventions.
+**PRs must pass CI to be merged.** The CI runs on Ubuntu / macOS / Windows × Python 3.11 / 3.12 (matrix tests) plus a single Ubuntu / 3.12 `lint` job that enforces no unused imports (ruff F401) and ASCII-only `print()` literals on the CLI surface (covers plain string constants AND f-string literal segments; computed expression slots inside f-strings are out of scope). If your PR adds new behavior, please add corresponding unit tests — see [Testing](#testing) for conventions.
+
+### Repository conventions
+
+This repo accumulated 23 review patterns across 7 PRs of refactor work, distilled into:
+
+- **`CLAUDE.md`** — standing rules for any AI-assisted contributor (and a useful checklist for human contributors too). Imperative, grouped by moment of code change ("before you commit", "when you change a signature", "when you parse external input", "when you write Streamlit code", etc.). Read it once before your first PR.
+- **`LESSONS.md`** — per-incident archive of every Copilot review finding with the PR# and fix. CLAUDE.md is the digest; LESSONS.md is the canonical history.
+- **`.claude/skills/pr-self-review/SKILL.md`** — Claude Code skill that runs the 23-theme checklist against a staged diff. Useful before pushing.
+- **`scripts/check_ascii_print.py`** + **ruff F401** — automated lint enforcement. Optional local hooks via `.pre-commit-config.yaml`; mandatory CI gate.
 
 ### Issue reporting
 

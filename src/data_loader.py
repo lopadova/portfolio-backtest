@@ -11,11 +11,10 @@ the SPY trading calendar.
 
 from __future__ import annotations
 
-import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 import numpy as np
 import pandas as pd
@@ -312,7 +311,7 @@ def validate() -> bool:
         print("\nSee data/README.md for download instructions.")
         return False
 
-    print("Data validation OK — all expected files present.")
+    print("Data validation OK -- all expected files present.")
     return True
 
 

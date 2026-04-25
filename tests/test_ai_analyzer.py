@@ -3,8 +3,6 @@ Unit tests for src/ai_analyzer.py — provider factory, prompt building,
 response saving. HTTP calls are mocked (no network required).
 """
 
-import os
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest

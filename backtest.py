@@ -19,7 +19,7 @@ import dataclasses
 import sys
 import tomllib
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict
 
 # Run the environment check BEFORE importing any third-party package —
 # otherwise users who forget to activate the venv get a raw
@@ -33,7 +33,6 @@ require_runtime_deps(
 # is used. Real env vars take precedence; no-op when .env is absent.
 load_dotenv()
 
-import numpy as np
 import pandas as pd
 
 from src.data_loader import load_data, DataBundle
@@ -59,7 +58,7 @@ from src.plots import (
 )
 from src.report import generate_markdown_report
 from src.portfolio import (
-    BENCHMARKS, REFERENCE_NAV_EUR, OPTIONS,
+    BENCHMARKS, REFERENCE_NAV_EUR,
 )
 
 
@@ -139,7 +138,7 @@ def run_backtest(
     ``returns_dict`` keys mirror the portfolio's display name."""
     print(f"\n{'=' * 70}")
     print(f"Running backtest: {bundle.monthly_returns_eur.index[0].date()} to {bundle.monthly_returns_eur.index[-1].date()}")
-    print(f"Starting NAV: €{start_nav:,.0f}")
+    print(f"Starting NAV: EUR {start_nav:,.0f}")
     print(f"Options overlay: {'ENABLED' if enable_options else 'DISABLED'}")
     if portfolio is not None:
         print(f"Portfolio:       {portfolio.name} ({len(portfolio.assets)} assets)")
@@ -297,7 +296,7 @@ def run_monte_carlo(returns_dict: Dict[str, pd.Series], args, output_dir: Path):
     else:
         n_years = args.mc_years
         n_months = n_years * 12
-    print(f"\nRunning Monte Carlo: {args.mc_paths:,} paths × {n_years:.2f} years ({n_months} months), block size {args.mc_block_size}")
+    print(f"\nRunning Monte Carlo: {args.mc_paths:,} paths x {n_years:.2f} years ({n_months} months), block size {args.mc_block_size}")
     simulated = block_bootstrap(
         returns, n_paths=args.mc_paths, n_periods=n_months,
         block_size=args.mc_block_size,
@@ -307,16 +306,16 @@ def run_monte_carlo(returns_dict: Dict[str, pd.Series], args, output_dir: Path):
     # Stats
     stats = compute_mc_stats(wealth_paths, n_months)
     print(f"\n{'=' * 70}")
-    print(f"MONTE CARLO RESULTS — {name}")
+    print(f"MONTE CARLO RESULTS -- {name}")
     print(f"{'=' * 70}")
     print(f"Paths simulated:               {stats.n_paths:,}")
     print(f"Horizon:                       {stats.n_years:.0f} years")
-    print(f"Terminal wealth (starting €{args.nav:,.0f}):")
-    print(f"  5th percentile:              €{stats.pct5_terminal * args.nav:,.0f}")
-    print(f"  25th percentile:             €{stats.pct25_terminal * args.nav:,.0f}")
-    print(f"  50th percentile (median):    €{stats.median_terminal * args.nav:,.0f}")
-    print(f"  75th percentile:             €{stats.pct75_terminal * args.nav:,.0f}")
-    print(f"  95th percentile:             €{stats.pct95_terminal * args.nav:,.0f}")
+    print(f"Terminal wealth (starting EUR {args.nav:,.0f}):")
+    print(f"  5th percentile:              EUR {stats.pct5_terminal * args.nav:,.0f}")
+    print(f"  25th percentile:             EUR {stats.pct25_terminal * args.nav:,.0f}")
+    print(f"  50th percentile (median):    EUR {stats.median_terminal * args.nav:,.0f}")
+    print(f"  75th percentile:             EUR {stats.pct75_terminal * args.nav:,.0f}")
+    print(f"  95th percentile:             EUR {stats.pct95_terminal * args.nav:,.0f}")
     print(f"Probability of positive nominal return: {stats.prob_positive_real_return:.1%}")
     print(f"Probability of drawdown > 20%: {stats.prob_drawdown_gt_20pct:.1%}")
     print(f"Probability of drawdown > 40%: {stats.prob_drawdown_gt_40pct:.1%}")

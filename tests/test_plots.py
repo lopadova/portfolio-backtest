@@ -7,7 +7,6 @@ The goal is to catch breakage when the chart APIs change.
 """
 
 import pandas as pd
-import pytest
 import matplotlib
 matplotlib.use("Agg")  # non-interactive backend for CI
 

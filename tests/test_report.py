@@ -2,8 +2,6 @@
 Unit tests for src/report.py — Markdown report generation.
 """
 
-import pandas as pd
-import pytest
 
 from src.metrics import compute_all
 from src.report import generate_markdown_report

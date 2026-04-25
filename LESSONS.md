@@ -247,6 +247,16 @@ The most confusing bugs come from preset files where a field looks important but
 
 ---
 
+## Theme 24 — A linter that's too narrow lies about its coverage
+
+Custom lint scripts that handle a subset of the real surface but get advertised as covering "all of it" become traps: contributors trust the green CI badge and ship code that the lint claims to gate but actually doesn't. The mistake compounds because the docs (CLAUDE.md, README, the script docstring) often describe the INTENDED policy, not the implemented one.
+
+- PR #22 (PR8). `scripts/check_ascii_print.py` originally inspected only `ast.Constant(value=str)` nodes inside `print()` arguments — i.e. plain string literals. It explicitly skipped `ast.JoinedStr` (f-strings), so a `print(f"NAV: €{n:,.0f}")` slipped through even though the leading `"NAV: €"` segment is a static literal and would crash Windows cp1252 just like a plain `print("€100")`. CLAUDE.md and README claimed broad "ASCII-only print() literals" coverage, which overstated what was implemented. Copilot caught the gap on all three docs (script + CLAUDE.md + README). **Fix**: extended the AST visitor to walk `JoinedStr.values` and check each `Constant` segment (`FormattedValue` slots stay out of scope — runtime values are unknowable at AST time, and inspecting them would generate false positives). The fix immediately found 11 new violations in `backtest.py` and `fire.py` (€/×/em-dash inside f-string literal segments) — all promptly fixed. Added `tests/test_check_ascii_print.py` (16 tests) so the visitor's coverage matrix is enforced going forward. Updated CLAUDE.md and README to describe the actual coverage precisely (covers plain literals + f-string static segments; doesn't cover computed expression slots).
+
+**Candidate rule**: when authoring a custom lint script, write its tests BEFORE writing its docstring. The tests force you to enumerate every input shape; the docstring then describes what the tests prove. The opposite (docstring first) tempts you to overstate coverage. Bonus: a `tests/test_<script>.py` exists as soon as the script is committed, so future contributors see the contract.
+
+---
+
 ## Theme 16 — Hardcoded product/preset labels leak through when names become data
 
 When a preset's name used to be a hardcoded product name but is now user-configurable, every chart legend / annotation / hover card that built a string around the old hardcoded name needs to switch to the runtime `label` field.

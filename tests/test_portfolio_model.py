@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import FrozenInstanceError
-from pathlib import Path
 
 import pytest
 

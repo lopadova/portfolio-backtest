@@ -14,7 +14,6 @@ For those, this script prints explicit instructions.
 from __future__ import annotations
 
 import io
-import sys
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -96,7 +95,7 @@ def compute_sp500_tr_monthly():
     """Compute SP500 total return monthly from SPY dividends + price."""
     spy_csv = DATA_RAW / "spy_daily.csv"
     if not spy_csv.exists():
-        print("  Skipping SP500 TR computation — spy_daily.csv missing")
+        print("  Skipping SP500 TR computation -- spy_daily.csv missing")
         return
     print("  Computing SP500 TR monthly from SPY Adj Close ...")
     df = pd.read_csv(spy_csv, parse_dates=["date"])
@@ -111,7 +110,7 @@ def compute_nasdaq100_tr_monthly():
     """Compute Nasdaq 100 TR monthly from QQQ Adj Close."""
     qqq_csv = DATA_RAW / "qqq_daily.csv"
     if not qqq_csv.exists():
-        print("  Skipping Nasdaq 100 TR computation — qqq_daily.csv missing")
+        print("  Skipping Nasdaq 100 TR computation -- qqq_daily.csv missing")
         return
     print("  Computing Nasdaq 100 TR monthly from QQQ Adj Close ...")
     df = pd.read_csv(qqq_csv, parse_dates=["date"])
@@ -128,7 +127,7 @@ def print_manual_instructions():
 MANUAL DOWNLOAD REQUIRED for the following files:
 ============================================================
 
-1. MSCI indices — register free at https://www.msci.com/end-of-day-data-search
+1. MSCI indices -- register free at https://www.msci.com/end-of-day-data-search
    Required (monthly Net TR, USD unless noted, YYYY-MM-DD):
      * msci_world_tr_monthly.csv             (MSCI World Net TR, EUR)
      * msci_world_ex_usa_monthly.csv         (MSCI World ex-USA Net TR, USD)
@@ -138,30 +137,30 @@ MANUAL DOWNLOAD REQUIRED for the following files:
      * msci_europe_monthly.csv               (MSCI Europe Net TR, EUR)
    Format each CSV as two columns: date,value
 
-2. CBOE PUT Index — https://www.cboe.com/us/indices/dashboard/PUT/
+2. CBOE PUT Index -- https://www.cboe.com/us/indices/dashboard/PUT/
    Save as: cboe_put_index_monthly.csv
    Columns: date,value
 
-3. SG CTA Index — https://wholesale.banking.societegenerale.com/en/prime-services-indices/
+3. SG CTA Index -- https://wholesale.banking.societegenerale.com/en/prime-services-indices/
    Free registration; look for "SG CTA Index" monthly returns.
    Save as: sg_cta_index_monthly.csv
    Columns: date,value
 
-4. S&P 500 Healthcare Total Return — https://www.spglobal.com/spdji/
+4. S&P 500 Healthcare Total Return -- https://www.spglobal.com/spdji/
    Save as: sp500_healthcare_tr_monthly.csv
 
-5. LBMA Gold PM — https://www.lbma.org.uk/prices-and-data/precious-metal-prices
+5. LBMA Gold PM -- https://www.lbma.org.uk/prices-and-data/precious-metal-prices
    Download historical monthly prices (USD).
    Save as: gold_lbma_monthly.csv
 
-6. iBoxx Euro Sovereigns 1-3y and 7-10y total return — S&P Global / IHS Markit
+6. iBoxx Euro Sovereigns 1-3y and 7-10y total return -- S&P Global / IHS Markit
    Alternative proxies via Yahoo: IBGS (1-3y), IEGA (7-10y)
    Save as: iboxx_eurgov_1_3y_monthly.csv, iboxx_eurgov_7_10y_monthly.csv
 
-7. Bloomberg Euro Aggregate TR — or iShares Core € Aggregate Bond proxy (ticker IEAG).
+7. Bloomberg Euro Aggregate TR -- or iShares Core EUR Aggregate Bond proxy (ticker IEAG).
    Save as: bloomberg_euro_agg_monthly.csv
 
-8. FTSE India and FTSE China TR monthly — https://www.ftserussell.com/
+8. FTSE India and FTSE China TR monthly -- https://www.ftserussell.com/
    Save as: india_ftse_monthly.csv, china_ftse_monthly.csv
 
 9. Crypto basket (optional, can leave empty if unavailable):
@@ -176,7 +175,7 @@ After downloading, validate with:
 
 def main():
     print("=" * 60)
-    print("Portfolio Backtest Engine — automated data fetch")
+    print("Portfolio Backtest Engine -- automated data fetch")
     print("=" * 60)
     print(f"\nOutput directory: {DATA_RAW.resolve()}\n")
 

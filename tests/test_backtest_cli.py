@@ -7,14 +7,11 @@ cost of a fresh Python interpreter per test.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
 import backtest as backtest_mod
-from src.portfolio_model import Portfolio
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

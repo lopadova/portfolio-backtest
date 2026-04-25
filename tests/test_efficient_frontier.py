@@ -13,7 +13,6 @@ from src.efficient_frontier import (
     sample_random_portfolios,
     evaluate_portfolios,
     find_key_portfolios,
-    markowitz_frontier,
     plot_efficient_frontier,
     plot_efficient_frontier_interactive,
     run_efficient_frontier,
