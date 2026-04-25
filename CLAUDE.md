@@ -214,21 +214,7 @@ These five run on every PR. If any fires, fix before pushing.
 
 ## Known tech debt
 
-These items were considered for cleanup but deferred with reason. A
-future PR can address them.
-
-- **`src/sensitivity.py::_snapshot_config` / `_restore_config` /
-  `_apply_param_override`** — the legacy `portfolio=None` branch in
-  `run_sensitivity_sweep` still uses these private helpers. Removing
-  them requires routing the legacy path through
-  `build_portfolio_from_globals()` + the generic engine, which
-  changes the equity-internal absorption logic for `--sensitivity
-  put_write` (and friends) on the Four Umbrellas preset: the legacy
-  path absorbs the delta from another equity sleeve, the generic
-  path absorbs from cash. Different semantics → different numbers →
-  violates the byte-identical guarantee. A future PR can either (a)
-  accept the numeric shift with a documented migration, or (b)
-  replicate the equity-absorption logic on the generic path.
+(none currently)
 
 ---
 

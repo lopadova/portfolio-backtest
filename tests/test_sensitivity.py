@@ -1,5 +1,12 @@
 """
 Unit tests for src/sensitivity.py — programmatic parameter sweep.
+
+PR9: the legacy globals-mutating path was retired. All sweeps now go
+through the generic copy-based path (``_apply_param_override_on_portfolio``),
+with optional ``absorb_from`` to control which sleeve absorbs the weight
+delta. CLI auto-defaults absorb_from to a sibling equity sleeve when
+running on the default Four Umbrellas preset, preserving the legacy
+sensitivity output byte-identically.
 """
 
 
@@ -12,13 +19,13 @@ from src.sensitivity import (
     run_sensitivity_sweep,
     plot_sensitivity_results,
     parse_range_to_values,
-    _snapshot_config,
-    _restore_config,
-    _apply_param_override,
+    _apply_param_override_on_portfolio,
     SUPPORTED_PARAMS,
 )
 from src.data_loader import _generate_synthetic_bundle
 from src import portfolio as portfolio_cfg
+from src.portfolio_model import AssetAllocation, Portfolio
+from src.rebalance import build_portfolio_from_globals
 
 
 class TestParseRangeToValues:
@@ -49,104 +56,129 @@ class TestParseRangeToValues:
             parse_range_to_values(range_tuple=(0.25, 0.10), step=0.025, values_list=None)
 
 
-class TestApplyOverride:
-    def test_gold_override_preserves_total(self):
-        snap = _snapshot_config()
-        try:
-            original_total = sum(portfolio_cfg.WEIGHTS.values())
-            _apply_param_override("gold", 0.25)
-            new_total = sum(portfolio_cfg.WEIGHTS.values())
-            assert abs(original_total - new_total) < 1e-9
-            assert portfolio_cfg.WEIGHTS["gold"] == pytest.approx(0.25)
-        finally:
-            _restore_config(snap)
+class TestApplyOverridePortfolio:
+    """PR9: the only override entry point. Operates on a Portfolio copy,
+    never touches module globals."""
 
-    def test_options_budget_override(self):
-        snap = _snapshot_config()
-        try:
-            _apply_param_override("options_budget", 0.005)
-            assert portfolio_cfg.OPTIONS.budget_nav_per_year == pytest.approx(0.005)
-        finally:
-            _restore_config(snap)
+    def _fu(self) -> Portfolio:
+        return build_portfolio_from_globals()
 
-    def test_rebalance_freq_override(self):
-        snap = _snapshot_config()
-        try:
-            _apply_param_override("rebalance_freq", 4)
-            months = portfolio_cfg.REBALANCE.months
-            assert len(months) == 4
-            assert all(1 <= m <= 12 for m in months)
-        finally:
-            _restore_config(snap)
-
-    def test_unsupported_param_raises(self):
-        with pytest.raises(ValueError):
-            _apply_param_override("unknown_param", 0.1)
+    def test_gold_override_absorbs_from_cash_by_default(self):
+        p = self._fu()
+        new = _apply_param_override_on_portfolio(p, "gold", 0.25)
+        weights = {a.key: a.weight for a in new.assets}
+        assert weights["gold"] == pytest.approx(0.25)
+        # Total preserved
+        assert sum(weights.values()) == pytest.approx(sum(a.weight for a in p.assets))
 
     def test_value_must_be_finite(self):
-        """NaN / Inf / non-numeric value should raise ValueError."""
-        snap = _snapshot_config()
-        try:
-            with pytest.raises(ValueError, match=r"finite number"):
-                _apply_param_override("gold", float("nan"))
-            with pytest.raises(ValueError, match=r"finite number"):
-                _apply_param_override("gold", float("inf"))
-            with pytest.raises(ValueError, match=r"finite number"):
-                _apply_param_override("gold", "not a number")
-        finally:
-            _restore_config(snap)
+        p = self._fu()
+        with pytest.raises(ValueError, match=r"finite number"):
+            _apply_param_override_on_portfolio(p, "gold", float("nan"))
+        with pytest.raises(ValueError, match=r"finite number"):
+            _apply_param_override_on_portfolio(p, "gold", float("inf"))
+        with pytest.raises(ValueError, match=r"finite number"):
+            _apply_param_override_on_portfolio(p, "gold", "not a number")
 
     def test_weight_out_of_range_raises(self):
-        """Weight-like params must be in [0, 1]."""
-        snap = _snapshot_config()
-        try:
-            with pytest.raises(ValueError, match=r"\[0, 1\]"):
-                _apply_param_override("gold", -0.1)
-            with pytest.raises(ValueError, match=r"\[0, 1\]"):
-                _apply_param_override("gold", 1.1)
-        finally:
-            _restore_config(snap)
+        p = self._fu()
+        with pytest.raises(ValueError, match=r"\[0, 1\]"):
+            _apply_param_override_on_portfolio(p, "gold", -0.1)
+        with pytest.raises(ValueError, match=r"\[0, 1\]"):
+            _apply_param_override_on_portfolio(p, "gold", 1.1)
 
     def test_gold_override_would_drive_cash_negative(self):
-        """Sweeping gold too high should raise rather than silently producing cash < 0."""
-        snap = _snapshot_config()
-        try:
-            # Cash default is 0.11; gold default ~0.18. Setting gold=0.5 → delta=0.32 → cash=-0.21
-            with pytest.raises(ValueError, match=r"drive cash negative"):
-                _apply_param_override("gold", 0.50)
-        finally:
-            _restore_config(snap)
+        p = self._fu()
+        # gold default ~0.18, cash ~0.11 -> gold=0.50 -> cash negative
+        with pytest.raises(ValueError, match=r"drive cash negative"):
+            _apply_param_override_on_portfolio(p, "gold", 0.50)
 
     def test_rebalance_freq_rejects_non_integer(self):
-        """Floats that are not exact integers must be rejected (no silent truncation)."""
-        snap = _snapshot_config()
-        try:
-            with pytest.raises(ValueError, match=r"must be an integer"):
-                _apply_param_override("rebalance_freq", 2.5)
-        finally:
-            _restore_config(snap)
+        p = self._fu()
+        with pytest.raises(ValueError, match=r"must be an integer"):
+            _apply_param_override_on_portfolio(p, "rebalance_freq", 2.5)
 
     def test_rebalance_freq_rejects_non_divisor(self):
-        """5 is a valid positive integer but not a divisor of 12 → must raise."""
-        snap = _snapshot_config()
-        try:
-            with pytest.raises(ValueError, match=r"divisor of 12"):
-                _apply_param_override("rebalance_freq", 5)
-            with pytest.raises(ValueError, match=r"divisor of 12"):
-                _apply_param_override("rebalance_freq", 7)
-        finally:
-            _restore_config(snap)
+        p = self._fu()
+        with pytest.raises(ValueError, match=r"divisor of 12"):
+            _apply_param_override_on_portfolio(p, "rebalance_freq", 5)
+        with pytest.raises(ValueError, match=r"divisor of 12"):
+            _apply_param_override_on_portfolio(p, "rebalance_freq", 7)
 
-    def test_equity_sleeve_cannot_exceed_absorb_capacity(self):
-        """Setting equity sleeve too high should raise rather than drive absorb_key negative."""
-        snap = _snapshot_config()
-        try:
-            # put_write default ~0.131, nasdaq_top30 default ~0.117 (absorb target)
-            # Setting put_write=0.30 → delta=0.17 → nasdaq = 0.117 - 0.17 = -0.05 (negative)
-            with pytest.raises(ValueError, match=r"drive .* negative"):
-                _apply_param_override("put_write", 0.30)
-        finally:
-            _restore_config(snap)
+    def test_unsupported_param_raises(self):
+        p = self._fu()
+        with pytest.raises(ValueError, match=r"Unsupported sensitivity parameter"):
+            _apply_param_override_on_portfolio(p, "unknown_param", 0.1)
+
+
+class TestAbsorbFrom:
+    """PR9: ``absorb_from`` selects which sleeve absorbs the weight delta.
+    Default ``None`` means cash. Used by the CLI to preserve legacy
+    equity-internal absorption on the FU preset."""
+
+    def _fu(self) -> Portfolio:
+        return build_portfolio_from_globals()
+
+    def test_absorb_from_sibling_preserves_other_sleeves(self):
+        """Sweeping put_write with absorb_from=nasdaq_top30: only those
+        two assets change, all others identical."""
+        p = self._fu()
+        new = _apply_param_override_on_portfolio(
+            p, "put_write", 0.20, absorb_from="nasdaq_top30",
+        )
+        old = {a.key: a.weight for a in p.assets}
+        new_w = {a.key: a.weight for a in new.assets}
+        assert new_w["put_write"] == pytest.approx(0.20)
+        # cash, gold, dbi etc. unchanged
+        for key, val in old.items():
+            if key not in ("put_write", "nasdaq_top30"):
+                assert new_w[key] == val
+        # Delta absorbed by nasdaq_top30
+        assert new_w["nasdaq_top30"] == pytest.approx(
+            old["nasdaq_top30"] - (0.20 - old["put_write"])
+        )
+
+    def test_absorb_from_self_rejected(self):
+        p = self._fu()
+        with pytest.raises(ValueError, match=r"cannot equal the swept parameter"):
+            _apply_param_override_on_portfolio(p, "gold", 0.20, absorb_from="gold")
+
+    def test_absorb_from_unknown_asset_rejected(self):
+        p = self._fu()
+        with pytest.raises(ValueError, match=r"no asset named 'doesnotexist'"):
+            _apply_param_override_on_portfolio(
+                p, "gold", 0.20, absorb_from="doesnotexist",
+            )
+
+    def test_absorb_from_negative_capacity_rejected(self):
+        """If the named absorber doesn't have enough weight to take the
+        delta, raise rather than silently produce a negative weight."""
+        p = self._fu()
+        # nasdaq_top30 default ~0.117 — sweeping put_write to 0.30 would
+        # drive nasdaq to -0.05.
+        with pytest.raises(ValueError, match=r"drive nasdaq_top30 negative"):
+            _apply_param_override_on_portfolio(
+                p, "put_write", 0.30, absorb_from="nasdaq_top30",
+            )
+
+    def test_absorb_from_works_on_custom_portfolio(self):
+        """absorb_from also works on user-provided portfolios — sweeping
+        gold absorbs from a chosen non-cash sleeve."""
+        p = Portfolio(
+            name="GoldVsQuality",
+            assets=[
+                AssetAllocation("gold", 0.30),
+                AssetAllocation("quality", 0.50),
+                AssetAllocation("cash", 0.20),
+            ],
+        )
+        new = _apply_param_override_on_portfolio(
+            p, "gold", 0.40, absorb_from="quality",
+        )
+        weights = {a.key: a.weight for a in new.assets}
+        assert weights["gold"] == pytest.approx(0.40)
+        assert weights["quality"] == pytest.approx(0.40)  # absorbed -0.10
+        assert weights["cash"] == pytest.approx(0.20)  # unchanged
 
 
 class TestSweepValidation:
@@ -166,12 +198,29 @@ class TestSweep:
         assert "cagr" in df.columns
         assert "max_drawdown" in df.columns
 
-    def test_sweep_restores_config(self):
+    def test_sweep_does_not_mutate_globals(self):
+        """PR9: sweep on the default preset (portfolio=None) goes through
+        the copy-based generic path. The src.portfolio module globals
+        must remain unchanged after the sweep."""
         bundle = _generate_synthetic_bundle()
-        original_gold = portfolio_cfg.WEIGHTS["gold"]
+        before_gold = portfolio_cfg.WEIGHTS["gold"]
+        before_cash = portfolio_cfg.WEIGHTS["cash"]
+        before_equity = dict(portfolio_cfg.EQUITY)
+        before_options_budget = portfolio_cfg.OPTIONS.budget_nav_per_year
+        before_rebalance = tuple(portfolio_cfg.REBALANCE.months)
+
         _ = run_sensitivity_sweep(bundle, "gold", [0.10, 0.25])
-        # After the sweep, config must be back to original
-        assert portfolio_cfg.WEIGHTS["gold"] == pytest.approx(original_gold)
+        _ = run_sensitivity_sweep(bundle, "options_budget", [0.001, 0.005])
+        _ = run_sensitivity_sweep(
+            bundle, "put_write", [0.10, 0.15], absorb_from="nasdaq_top30",
+        )
+        _ = run_sensitivity_sweep(bundle, "rebalance_freq", [1, 4])
+
+        assert portfolio_cfg.WEIGHTS["gold"] == before_gold
+        assert portfolio_cfg.WEIGHTS["cash"] == before_cash
+        assert dict(portfolio_cfg.EQUITY) == before_equity
+        assert portfolio_cfg.OPTIONS.budget_nav_per_year == before_options_budget
+        assert tuple(portfolio_cfg.REBALANCE.months) == before_rebalance
 
     def test_sweep_chart_created(self, tmp_path):
         bundle = _generate_synthetic_bundle()

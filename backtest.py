@@ -90,6 +90,12 @@ def parse_args(argv=None):
     p.add_argument("--range", type=float, nargs=2, metavar=("LOW", "HIGH"), help="Parameter range for sensitivity")
     p.add_argument("--step", type=float, help="Parameter step for sensitivity")
     p.add_argument("--values", type=float, nargs="+", help="Explicit parameter values (alternative to --range/--step)")
+    p.add_argument("--absorb-from", type=str, metavar="KEY",
+                   help=("Asset key that absorbs the weight delta when sweeping a "
+                         "weight-like param. Default: 'cash'. On the Four Umbrellas "
+                         "preset, sweeps of put_write/nasdaq_top30/momentum/quality "
+                         "auto-default to a sibling equity sleeve (preserves macro "
+                         "equity total)."))
 
     # Rolling-window backtest (Phase 5)
     p.add_argument("--rolling-window", action="store_true", help="Run rolling-window backtest")
@@ -339,12 +345,40 @@ def run_monte_carlo(returns_dict: Dict[str, pd.Series], args, output_dir: Path):
     return stats
 
 
+_FU_EQUITY_ABSORB_DEFAULTS = {
+    "put_write": "nasdaq_top30",
+    "nasdaq_top30": "put_write",
+    "momentum": "put_write",
+    "quality": "put_write",
+}
+
+
+def _resolve_absorb_from(args, engine_portfolio: Portfolio | None) -> str | None:
+    """Pick the absorb_from for run_sensitivity_sweep.
+
+    Priority:
+      1. ``--absorb-from`` passed by the user -> honored as-is.
+      2. Default Four Umbrellas preset (engine_portfolio is None) AND param
+         is one of the equity-internal sleeves -> route to the legacy
+         sibling so the sweep CSV stays byte-identical to pre-PR9.
+      3. Otherwise -> ``None`` -> the engine absorbs from ``cash``.
+    """
+    if args.absorb_from is not None:
+        return args.absorb_from
+    if engine_portfolio is None and args.sensitivity in _FU_EQUITY_ABSORB_DEFAULTS:
+        return _FU_EQUITY_ABSORB_DEFAULTS[args.sensitivity]
+    return None
+
+
 def run_sensitivity(args, bundle=None, portfolio: Portfolio | None = None):
     """Run sensitivity analysis for one parameter.
 
     ``portfolio`` is forwarded to ``run_sensitivity_sweep``. When the user
     selected the default preset (or no --portfolio at all), we pass ``None``
-    so the legacy globals path is used — byte-identical to pre-PR3 output."""
+    so the engine materializes the Four Umbrellas Portfolio from the
+    legacy globals — combined with the auto-default ``absorb_from`` for
+    equity-internal sweeps, this preserves byte-identical sensitivity
+    output vs. pre-PR9 main."""
     from src.sensitivity import run_sensitivity_sweep, plot_sensitivity_results, parse_range_to_values
 
     if bundle is None:
@@ -355,14 +389,18 @@ def run_sensitivity(args, bundle=None, portfolio: Portfolio | None = None):
 
     values = parse_range_to_values(args.range, args.step, args.values)
     engine_portfolio = _engine_portfolio(args, portfolio) if portfolio is not None else None
+    absorb_from = _resolve_absorb_from(args, engine_portfolio)
 
     print(f"\nRunning sensitivity sweep on parameter '{args.sensitivity}':")
     print(f"  Values: {[f'{v:.4f}' for v in values]}")
     if engine_portfolio is not None:
         print(f"  Portfolio: {engine_portfolio.name} ({len(engine_portfolio.assets)} assets)")
+    if absorb_from is not None:
+        print(f"  Absorb from: {absorb_from}")
 
     df = run_sensitivity_sweep(
-        bundle, args.sensitivity, values, portfolio=engine_portfolio,
+        bundle, args.sensitivity, values,
+        portfolio=engine_portfolio, absorb_from=absorb_from,
     )
 
     output_dir = Path(args.output_dir) / "sensitivity"
