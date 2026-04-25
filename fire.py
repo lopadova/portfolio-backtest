@@ -125,8 +125,8 @@ def main():
     print(f"Simulations:           {summary.n_simulations:,}")
     print(f"Success probability:   {summary.probability_success:.1%}")
     print(f"Median survival age:   {summary.median_survival_age}")
-    print(f"Median legacy (nom.):  €{summary.median_legacy_nominal:,.0f}")
-    print(f"Median legacy (real):  €{summary.median_legacy_real:,.0f}")
+    print(f"Median legacy (nom.):  EUR {summary.median_legacy_nominal:,.0f}")
+    print(f"Median legacy (real):  EUR {summary.median_legacy_real:,.0f}")
     if summary.worst_case_failure_age:
         print(f"Worst failure age:     {summary.worst_case_failure_age}")
     else:

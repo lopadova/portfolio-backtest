@@ -57,7 +57,14 @@ These five run on every PR. If any fires, fix before pushing.
 
 5. **CLI output is ASCII-only.** No emoji, em-dash, U+2192 arrow, or any
    char > 127 inside `print()` literals in `backtest.py`, `fire.py`,
-   `fetch_data.py`, `analyze.py`, or `src/*.py`. Run
+   `fetch_data.py`, `analyze.py`, or `src/*.py`. The check covers BOTH
+   plain string constants (`print("Done -- ok")`) AND the literal
+   segments of f-strings (`print(f"NAV: EUR {n}")` is fine; `print(f"NAV: €{n}")`
+   gets flagged on the leading `"NAV: €"` segment). Computed expression
+   slots inside f-strings (`{...}`) are NOT inspected — their runtime
+   value is unknowable at AST time; if you compute a Unicode string
+   externally and pass it to `print()`, the linter won't catch it but
+   you should still avoid it. Run
    `python scripts/check_ascii_print.py backtest.py fire.py fetch_data.py analyze.py src/`.
    The CI `lint` job blocks merge if it fires.
    Streamlit (`streamlit_app.py`) is exempt — the browser is UTF-8 native.

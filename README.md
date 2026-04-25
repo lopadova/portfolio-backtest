@@ -1439,7 +1439,7 @@ pre-commit install
 git push origin feat/short-descriptive-name
 ```
 
-**PRs must pass CI to be merged.** The CI runs on Ubuntu / macOS / Windows × Python 3.11 / 3.12 (matrix tests) plus a single Ubuntu / 3.12 `lint` job that enforces no unused imports (ruff F401) and ASCII-only `print()` literals on the CLI surface. If your PR adds new behavior, please add corresponding unit tests — see [Testing](#testing) for conventions.
+**PRs must pass CI to be merged.** The CI runs on Ubuntu / macOS / Windows × Python 3.11 / 3.12 (matrix tests) plus a single Ubuntu / 3.12 `lint` job that enforces no unused imports (ruff F401) and ASCII-only `print()` literals on the CLI surface (covers plain string constants AND f-string literal segments; computed expression slots inside f-strings are out of scope). If your PR adds new behavior, please add corresponding unit tests — see [Testing](#testing) for conventions.
 
 ### Repository conventions
 

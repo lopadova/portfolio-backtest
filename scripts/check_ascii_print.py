@@ -55,8 +55,64 @@ def _iter_python_files(targets: Iterable[Path]) -> Iterable[Path]:
                 yield p
 
 
+def _check_string_literal(
+    text: str, lineno: int, kind: str,
+) -> List[Tuple[int, str]]:
+    """Helper: emit a violation tuple if ``text`` has non-ASCII chars."""
+    non_ascii = [c for c in text if ord(c) > 127]
+    if not non_ascii:
+        return []
+    chars_repr = ", ".join(
+        f"U+{ord(c):04X} ({c!r})" for c in dict.fromkeys(non_ascii)
+    )
+    return [(
+        lineno,
+        f"non-ASCII char(s) inside print() {kind}: {chars_repr}",
+    )]
+
+
+def _scan_print_arg(arg: ast.AST) -> List[Tuple[int, str]]:
+    """Walk a single ``print(...)`` argument expression and return any
+    non-ASCII violations.
+
+    Covers two kinds of literals:
+
+    1. Plain string constants: ``print("Done -- ok")`` — caught via
+       ``ast.Constant(value=str)``.
+    2. f-string literal segments: ``print(f"Done -- {n} items")`` —
+       caught by walking ``ast.JoinedStr.values`` and checking each
+       ``ast.Constant(value=str)`` (the static text between ``{...}``
+       expression slots). The ``FormattedValue`` slots themselves
+       (computed expressions) are NOT inspected — their runtime value
+       is unknowable at AST time.
+
+    Computed exprs (Call/Name/BinOp/...) get a pass: false-positive
+    avoidance trumps theoretical completeness. The point of the rule
+    is to catch obvious authored Unicode in CLI ``print()`` calls,
+    which is what LESSONS Theme 18 documents.
+    """
+    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+        return _check_string_literal(arg.value, arg.lineno, "string literal")
+
+    if isinstance(arg, ast.JoinedStr):
+        out: List[Tuple[int, str]] = []
+        for piece in arg.values:
+            if isinstance(piece, ast.Constant) and isinstance(piece.value, str):
+                out.extend(_check_string_literal(
+                    piece.value, piece.lineno, "f-string literal segment",
+                ))
+        return out
+
+    return []
+
+
 def _scan_file(path: Path) -> List[Tuple[int, str]]:
-    """Return ``[(lineno, message), ...]`` for every print() with a non-ASCII string arg."""
+    """Return ``[(lineno, message), ...]`` for every print() arg whose
+    literal text contains non-ASCII characters.
+
+    Coverage: plain string constants AND the literal segments of f-strings.
+    Computed expressions (``Name``, ``Call``, ``BinOp``, ...) are skipped.
+    """
     try:
         source = path.read_text(encoding="utf-8")
     except OSError as e:  # pragma: no cover — defensive
@@ -73,21 +129,7 @@ def _scan_file(path: Path) -> List[Tuple[int, str]]:
         if node.func.id != "print":
             continue
         for arg in node.args:
-            # We only inspect literal string args. f-strings (JoinedStr)
-            # and computed exprs (Call/Name/...) get a pass — false-positive
-            # avoidance trumps theoretical completeness here. The whole
-            # point of the rule is to catch obvious authored Unicode in
-            # print literals, which is what the LESSONS theme documents.
-            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                non_ascii = [c for c in arg.value if ord(c) > 127]
-                if non_ascii:
-                    chars_repr = ", ".join(
-                        f"U+{ord(c):04X} ({c!r})" for c in dict.fromkeys(non_ascii)
-                    )
-                    violations.append((
-                        arg.lineno,
-                        f"non-ASCII char(s) inside print() string literal: {chars_repr}",
-                    ))
+            violations.extend(_scan_print_arg(arg))
     return violations
 
 
