@@ -257,6 +257,18 @@ Custom lint scripts that handle a subset of the real surface but get advertised 
 
 ---
 
+## Theme 25 — Hidden parameters in legacy code paths block unification
+
+When two implementations diverge by a single implicit choice (here: which sleeve absorbs the weight delta in `--sensitivity`), unifying them is blocked not by behavior incompatibility but by the fact that the legacy choice was never named or surfaced. Until the choice is promoted to a parameter, the only way to preserve byte-identicalness is to keep the legacy path alive.
+
+- PR #23 (PR9), retiring `_snapshot_config` / `_restore_config` / `_apply_param_override` from `src/sensitivity.py`. The legacy `portfolio=None` branch hardcoded "sweeping any of {put_write, nasdaq_top30, momentum, quality} absorbs the delta from `nasdaq_top30` (or `put_write` if sweeping nasdaq)" — a Four-Umbrellas-specific choice that preserved the macro equity total. The generic path absorbed from `cash`. Same engine, same data — different sweep CSVs. CLAUDE.md "Known tech debt" (PR8 era) flagged this as the reason the legacy path couldn't be deleted: removing it would change `--sensitivity put_write` numbers for users running on the default preset.
+
+  **Fix**: introduce an explicit `absorb_from: str | None` parameter on `_apply_param_override_on_portfolio` and `run_sensitivity_sweep`. Default `None` -> absorb from `cash`. When the CLI sees `--sensitivity` on the default Four Umbrellas preset (no `--portfolio`) AND the param is one of the four equity sleeves AND the user didn't pass `--absorb-from`, auto-route absorption to the legacy sibling. With this, the legacy code path can be deleted: `run_sensitivity_sweep` materializes a Portfolio via `build_portfolio_from_globals()` once and then runs the unified generic loop. Verification: `cmp` of all 8 sensitivity CSVs (gold, dbi, options_budget, rebalance_freq, put_write, nasdaq_top30, momentum, quality) against pre-PR9 main showed byte-identical output. Net: 110 lines removed from `src/sensitivity.py`, +1 CLI flag, +6 tests for `absorb_from`.
+
+**Candidate rule**: when blocked from deleting legacy code by a numeric-difference concern, ask "what implicit choice does the legacy path make that the new path doesn't?" — surface it as a named parameter, then default the new code to the legacy choice in the situations that need it. This converts a structural divergence into a defaulted argument and unblocks the unification.
+
+---
+
 ## Theme 16 — Hardcoded product/preset labels leak through when names become data
 
 When a preset's name used to be a hardcoded product name but is now user-configurable, every chart legend / annotation / hover card that built a string around the old hardcoded name needs to switch to the runtime `label` field.

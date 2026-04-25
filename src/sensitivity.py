@@ -8,11 +8,18 @@ Usage from CLI (see backtest.py):
     python backtest.py --sensitivity dbi --range 0.03 0.10 --step 0.01
     python backtest.py --sensitivity options_budget --range 0.0 0.01 --step 0.001
     python backtest.py --sensitivity rebalance_freq --values 1 2 4 12
+
+Absorption: weight-like sweeps shift the swept asset's weight up/down and
+absorb the delta from another sleeve. By default that sleeve is ``cash``;
+pass ``--absorb-from KEY`` (CLI) or ``absorb_from="<key>"`` (API) to absorb
+from a different sleeve. The default Four Umbrellas preset auto-routes the
+equity-internal sweeps (``put_write``, ``nasdaq_top30``, ``momentum``,
+``quality``) into a sibling equity sleeve so the macro equity total is
+preserved (matches pre-PR9 behavior).
 """
 
 from __future__ import annotations
 
-import copy
 from dataclasses import asdict, dataclass, replace as dataclass_replace
 from pathlib import Path
 from typing import List, Optional
@@ -22,10 +29,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 
-from . import portfolio as portfolio_cfg
 from .data_loader import DataBundle
 from .portfolio_model import AssetAllocation, Portfolio
-from .rebalance import simulate_portfolio
+from .rebalance import build_portfolio_from_globals, simulate_portfolio
 from .metrics import compute_all, cumulative_wealth
 
 
@@ -59,115 +65,26 @@ class SensitivityResult:
     total_return: float
 
 
-def _apply_param_override(param_name: str, value: float) -> None:
-    """
-    Mutate the global portfolio config in-place with a single parameter change.
-    The rebalance engine reads these at simulation time, so the change takes
-    effect on the next simulate_portfolio() call.
-
-    Delta absorption strategy:
-      - For macro sleeves (gold, dbi): absorb delta from `cash` (residual sleeve)
-        because WEIGHTS["equity"] is a display aggregate not used by the engine
-      - For equity-internal changes (put_write, nasdaq_top30, etc.): absorb
-        from another equity sleeve, preserving the equity total
-      - For non-weight params (options_budget, rebalance_freq): direct mutation
-
-    Raises ValueError if:
-      - Value is not a finite number
-      - For weight-like params: value is outside [0, 1] or produces a negative
-        balance in the absorbing sleeve (cash or alternate equity sleeve)
-      - For rebalance_freq: value is not a positive integer divisor of 12
-    """
-    # Global input validation
-    if not isinstance(value, (int, float)) or not np.isfinite(value):
-        raise ValueError(f"Sensitivity value must be a finite number, got {value!r}")
-
-    if param_name == "gold":
-        if not (0.0 <= value <= 1.0):
-            raise ValueError(f"gold weight must be in [0, 1], got {value}")
-        delta = value - portfolio_cfg.WEIGHTS["gold"]
-        new_cash = portfolio_cfg.WEIGHTS["cash"] - delta
-        if new_cash < 0.0:
-            raise ValueError(
-                f"gold={value} would drive cash negative ({new_cash:.4f}). "
-                f"Current cash = {portfolio_cfg.WEIGHTS['cash']:.4f}, "
-                f"current gold = {portfolio_cfg.WEIGHTS['gold']:.4f}"
-            )
-        portfolio_cfg.WEIGHTS["gold"] = value
-        portfolio_cfg.WEIGHTS["cash"] = new_cash
-    elif param_name == "dbi":
-        if not (0.0 <= value <= 1.0):
-            raise ValueError(f"dbi weight must be in [0, 1], got {value}")
-        delta = value - portfolio_cfg.WEIGHTS["dbi"]
-        new_cash = portfolio_cfg.WEIGHTS["cash"] - delta
-        if new_cash < 0.0:
-            raise ValueError(
-                f"dbi={value} would drive cash negative ({new_cash:.4f}). "
-                f"Current cash = {portfolio_cfg.WEIGHTS['cash']:.4f}, "
-                f"current dbi = {portfolio_cfg.WEIGHTS['dbi']:.4f}"
-            )
-        portfolio_cfg.WEIGHTS["dbi"] = value
-        portfolio_cfg.WEIGHTS["cash"] = new_cash
-    elif param_name == "options_budget":
-        if not (0.0 <= value <= 1.0):
-            raise ValueError(f"options_budget must be in [0, 1] (as fraction of NAV), got {value}")
-        portfolio_cfg.OPTIONS.budget_nav_per_year = value
-    elif param_name == "rebalance_freq":
-        # value must be a positive integer divisor of 12 for evenly-spaced months.
-        # Floats that are not exact integers are rejected to avoid silent truncation.
-        if not float(value).is_integer():
-            raise ValueError(
-                f"rebalance_freq must be an integer, got {value} "
-                f"(integer truncation would silently change the result)"
-            )
-        freq = int(value)
-        valid_divisors = (1, 2, 3, 4, 6, 12)
-        if freq not in valid_divisors:
-            raise ValueError(
-                f"rebalance_freq must be a divisor of 12 (one of {valid_divisors}), "
-                f"got {freq}. Non-divisors would produce unevenly-spaced rebalance months."
-            )
-        step = 12 // freq
-        portfolio_cfg.REBALANCE.months = tuple(range(1, 13, step))[:freq]
-    elif param_name in ("put_write", "nasdaq_top30", "momentum", "quality"):
-        if not (0.0 <= value <= 1.0):
-            raise ValueError(f"{param_name} weight must be in [0, 1], got {value}")
-        # Adjust equity breakdown, absorbing delta from another equity sleeve
-        # to preserve WEIGHTS["equity"] total
-        delta = value - portfolio_cfg.EQUITY[param_name]
-        absorb_key = "put_write" if param_name != "put_write" else "nasdaq_top30"
-        new_absorb = portfolio_cfg.EQUITY[absorb_key] - delta
-        if new_absorb < 0.0:
-            raise ValueError(
-                f"{param_name}={value} would drive {absorb_key} negative ({new_absorb:.4f}). "
-                f"Current {absorb_key} = {portfolio_cfg.EQUITY[absorb_key]:.4f}. "
-                f"Reduce the sweep upper bound or use a parameter with more room."
-            )
-        portfolio_cfg.EQUITY[param_name] = value
-        portfolio_cfg.EQUITY[absorb_key] = new_absorb
-        # Sanity check: equity total still matches WEIGHTS["equity"]
-        equity_total = sum(portfolio_cfg.EQUITY.values())
-        if abs(equity_total - portfolio_cfg.WEIGHTS["equity"]) > 0.002:
-            raise ValueError(
-                f"After applying {param_name}={value}, equity sleeves sum to "
-                f"{equity_total:.4f}, expected {portfolio_cfg.WEIGHTS['equity']:.4f}"
-            )
-    else:
-        raise ValueError(f"Unsupported sensitivity parameter: {param_name}. Choose from {list(SUPPORTED_PARAMS)}")
-
-
 _WEIGHT_PARAMS_PORTFOLIO = {
     "gold", "dbi", "put_write", "nasdaq_top30", "momentum", "quality"
 }
 
 
 def _apply_param_override_on_portfolio(
-    portfolio: Portfolio, param_name: str, value: float
+    portfolio: Portfolio,
+    param_name: str,
+    value: float,
+    absorb_from: str | None = None,
 ) -> Portfolio:
     """Return a NEW Portfolio with ``param_name`` set to ``value`` — without
-    mutating the input or any module global. Delta is absorbed by the
-    ``cash`` sleeve (analogous to the legacy globals path, which absorbed
-    from ``WEIGHTS['cash']``).
+    mutating the input or any module global.
+
+    ``absorb_from`` controls which asset absorbs the weight delta:
+      - ``None`` (default) -> absorb from the ``cash`` sleeve.
+      - ``"<key>"`` -> absorb from the named asset (must exist in the
+        portfolio). Useful when sweeping equity-internal sleeves
+        (put_write, nasdaq_top30, ...) and you want to preserve the
+        macro equity total by absorbing into a sibling equity sleeve.
 
     Supported params:
       - weight-like: gold, dbi, put_write, nasdaq_top30, momentum, quality
@@ -176,6 +93,7 @@ def _apply_param_override_on_portfolio(
         and stores it in ``portfolio.options_config``. The caller
         (``run_sensitivity_sweep``) is responsible for actually invoking
         the overlay so the budget change reaches the returns.
+        ``absorb_from`` is ignored for non-weight params.
     """
     if not isinstance(value, (int, float)) or not np.isfinite(value):
         raise ValueError(f"Sensitivity value must be a finite number, got {value!r}")
@@ -189,18 +107,31 @@ def _apply_param_override_on_portfolio(
                 f"Portfolio {portfolio.name!r} has no asset named {param_name!r}. "
                 f"Available assets: {sorted(current_weights)}"
             )
-        if "cash" not in current_weights:
+        absorb_key = absorb_from if absorb_from is not None else "cash"
+        if absorb_key == param_name:
             raise ValueError(
-                f"Portfolio {portfolio.name!r} has no 'cash' sleeve; cannot "
-                f"absorb sensitivity delta. Add an explicit 'cash' allocation "
-                f"or sweep a param on the legacy preset (portfolio=None)."
+                f"absorb_from={absorb_key!r} cannot equal the swept parameter "
+                f"({param_name!r}); choose a different sleeve."
+            )
+        if absorb_key not in current_weights:
+            if absorb_from is None:
+                raise ValueError(
+                    f"Portfolio {portfolio.name!r} has no 'cash' sleeve; cannot "
+                    f"absorb sensitivity delta. Add an explicit 'cash' allocation "
+                    f"or pass absorb_from=<key> to absorb from a different sleeve."
+                )
+            raise ValueError(
+                f"Portfolio {portfolio.name!r} has no asset named "
+                f"{absorb_key!r} to absorb the sensitivity delta. "
+                f"Available assets: {sorted(current_weights)}"
             )
         delta = value - current_weights[param_name]
-        new_cash = current_weights["cash"] - delta
-        if new_cash < 0.0:
+        new_absorb = current_weights[absorb_key] - delta
+        if new_absorb < 0.0:
             raise ValueError(
-                f"{param_name}={value} would drive cash negative ({new_cash:.4f}). "
-                f"Current cash = {current_weights['cash']:.4f}, "
+                f"{param_name}={value} would drive {absorb_key} negative "
+                f"({new_absorb:.4f}). "
+                f"Current {absorb_key} = {current_weights[absorb_key]:.4f}, "
                 f"current {param_name} = {current_weights[param_name]:.4f}"
             )
         new_assets = [
@@ -208,7 +139,7 @@ def _apply_param_override_on_portfolio(
                 key=a.key,
                 weight=(
                     value if a.key == param_name
-                    else new_cash if a.key == "cash"
+                    else new_absorb if a.key == absorb_key
                     else a.weight
                 ),
             )
@@ -253,31 +184,12 @@ def _apply_param_override_on_portfolio(
     )
 
 
-def _snapshot_config():
-    """Deep-copy of the relevant config dataclasses for restoration after a sweep."""
-    return {
-        "WEIGHTS": copy.deepcopy(portfolio_cfg.WEIGHTS),
-        "EQUITY": copy.deepcopy(portfolio_cfg.EQUITY),
-        "OPTIONS": copy.deepcopy(portfolio_cfg.OPTIONS),
-        "REBALANCE": copy.deepcopy(portfolio_cfg.REBALANCE),
-    }
-
-
-def _restore_config(snapshot):
-    """Restore config from a snapshot."""
-    portfolio_cfg.WEIGHTS.clear()
-    portfolio_cfg.WEIGHTS.update(snapshot["WEIGHTS"])
-    portfolio_cfg.EQUITY.clear()
-    portfolio_cfg.EQUITY.update(snapshot["EQUITY"])
-    portfolio_cfg.OPTIONS.__dict__.update(snapshot["OPTIONS"].__dict__)
-    portfolio_cfg.REBALANCE.__dict__.update(snapshot["REBALANCE"].__dict__)
-
-
 def run_sensitivity_sweep(
     bundle: DataBundle,
     param_name: str,
     values: List[float],
     portfolio: Optional[Portfolio] = None,
+    absorb_from: Optional[str] = None,
     risk_free_rate: float = 0.02,
     start_nav: float = 100_000.0,
 ) -> pd.DataFrame:
@@ -286,20 +198,27 @@ def run_sensitivity_sweep(
     summary statistics. Returns a DataFrame indexed by ``param_value`` with
     one row per sweep point.
 
-    Two modes, dispatched on ``portfolio``:
+    ``portfolio``:
+      - ``None`` -> the default Four Umbrellas preset is materialized via
+        ``build_portfolio_from_globals()`` and the sweep runs on a copy of
+        that. Module globals are NEVER mutated. (PR9: replaces the legacy
+        snapshot/restore path that mutated globals around each run.)
+      - ``Portfolio`` -> the override is applied to a copy of this Portfolio
+        per run.
 
-    * ``portfolio is None`` (legacy) — mutates ``src.portfolio`` globals
-      around each run, then restores them. Identical to pre-PR3 behavior.
-    * ``portfolio is not None`` — applies the override to a **copy** of
-      the Portfolio per run; NEVER mutates any global. Supports the
-      weight-like params (gold, dbi, put_write, nasdaq_top30, momentum,
-      quality), ``rebalance_freq``, and (PR7) ``options_budget`` via the
-      per-Portfolio ``options_config``.
+    ``absorb_from``:
+      - ``None`` (default) -> the weight delta is absorbed from the ``cash``
+        sleeve of the Portfolio.
+      - ``"<key>"`` -> the delta is absorbed from the named asset. Used by
+        the CLI to preserve the legacy equity-internal absorption on the
+        Four Umbrellas preset (e.g. sweeping ``put_write`` absorbs from
+        ``nasdaq_top30``, preserving the macro equity total).
+      - Ignored for non-weight params (``options_budget``, ``rebalance_freq``).
 
     When sweeping ``options_budget``, the overlay is included in the
-    simulation on BOTH paths — otherwise a budget change wouldn't reach
-    the returns. For all other parameters the core portfolio (no overlay)
-    is used so the param's allocation impact is isolated.
+    simulation — otherwise a budget change would not reach the returns.
+    For all other parameters the core portfolio (no overlay) is used so
+    the param's allocation impact is isolated.
     """
     if not values:
         raise ValueError(
@@ -307,73 +226,49 @@ def run_sensitivity_sweep(
             "Check --range/--step or --values CLI arguments."
         )
 
-    # When sweeping options_budget (legacy only), include the overlay to
-    # actually measure its effect.
+    # When sweeping options_budget, include the overlay to actually measure
+    # its effect. Non-budget sweeps run core-only so the param's allocation
+    # impact is isolated.
     include_overlay = (param_name == "options_budget")
 
+    # PR9: unify on the generic, copy-based path. When the caller passes
+    # ``portfolio=None``, materialize the legacy Four Umbrellas preset
+    # from the module globals once (read-only) and reuse it across all
+    # sweep points.
+    base_portfolio = portfolio if portfolio is not None else build_portfolio_from_globals()
+
     results: List[SensitivityResult] = []
+    for value in values:
+        adjusted = _apply_param_override_on_portfolio(
+            base_portfolio, param_name, value, absorb_from=absorb_from,
+        )
+        returns = simulate_portfolio(
+            bundle.monthly_returns_eur,
+            bundle.btc_activation_date,
+            apply_ter=True,
+            portfolio=adjusted,
+        )
+        if include_overlay:
+            # When sweeping options_budget, run the overlay against the
+            # adjusted Portfolio's options_config (built by
+            # _apply_param_override_on_portfolio with the new budget).
+            # Without this, budget changes would produce identical
+            # core-only returns and the sweep chart would be a flat line.
+            from .options_overlay import simulate_options_overlay
 
-    if portfolio is None:
-        # Legacy path — globals mutation with snapshot/restore
-        snapshot = _snapshot_config()
-        try:
-            for value in values:
-                _restore_config(snapshot)  # always start from clean baseline
-                _apply_param_override(param_name, value)
-
-                returns = simulate_portfolio(
-                    bundle.monthly_returns_eur,
-                    bundle.btc_activation_date,
-                    apply_ter=True,
-                )
-                if include_overlay:
-                    from .options_overlay import simulate_options_overlay
-                    nav_series = cumulative_wealth(returns, start_nav)
-                    overlay_returns = simulate_options_overlay(
-                        spy_daily=bundle.spy_daily,
-                        qqq_daily=bundle.qqq_daily,
-                        vix_daily=bundle.vix_daily,
-                        rf_daily=bundle.rf_daily,
-                        nav_series=nav_series,
-                    )
-                    returns = returns + overlay_returns.reindex(returns.index).fillna(0.0)
-
-                stats = compute_all("sensitivity_run", returns, risk_free_rate)
-                results.append(_stats_to_result(param_name, value, stats))
-        finally:
-            _restore_config(snapshot)  # always clean up
-    else:
-        # Generic path — copy-based, no global mutation
-        for value in values:
-            adjusted = _apply_param_override_on_portfolio(portfolio, param_name, value)
-            returns = simulate_portfolio(
-                bundle.monthly_returns_eur,
-                bundle.btc_activation_date,
-                apply_ter=True,
-                portfolio=adjusted,
+            nav_series = cumulative_wealth(returns, start_nav)
+            overlay_returns = simulate_options_overlay(
+                spy_daily=bundle.spy_daily,
+                qqq_daily=bundle.qqq_daily,
+                vix_daily=bundle.vix_daily,
+                rf_daily=bundle.rf_daily,
+                nav_series=nav_series,
+                rebalance_months=adjusted.rebalance_months,
+                options_config=adjusted.options_config,
             )
-            if include_overlay:
-                # PR7: when sweeping options_budget on a custom Portfolio,
-                # run the overlay against the adjusted Portfolio's
-                # options_config (built by _apply_param_override_on_portfolio
-                # with the new budget). Without this, budget changes would
-                # produce identical core-only returns and the sweep chart
-                # would be a flat line.
-                from .options_overlay import simulate_options_overlay
-
-                nav_series = cumulative_wealth(returns, start_nav)
-                overlay_returns = simulate_options_overlay(
-                    spy_daily=bundle.spy_daily,
-                    qqq_daily=bundle.qqq_daily,
-                    vix_daily=bundle.vix_daily,
-                    rf_daily=bundle.rf_daily,
-                    nav_series=nav_series,
-                    rebalance_months=adjusted.rebalance_months,
-                    options_config=adjusted.options_config,
-                )
-                returns = returns + overlay_returns.reindex(returns.index).fillna(0.0)
-            stats = compute_all("sensitivity_run", returns, risk_free_rate)
-            results.append(_stats_to_result(param_name, value, stats))
+            returns = returns + overlay_returns.reindex(returns.index).fillna(0.0)
+        stats = compute_all("sensitivity_run", returns, risk_free_rate)
+        results.append(_stats_to_result(param_name, value, stats))
 
     df = pd.DataFrame([asdict(r) for r in results]).set_index("param_value")
     return df
