@@ -13,7 +13,7 @@
 #   gold      18.25%
 #   equity    46.72%  → put_write 13.10% + nasdaq_top30 11.70%
 #                       + hc_us_hedged 2.20% + hc_world 5.10%
-#                       + quality 7.30% + momentum 5.80% + ex_usa 1.50%
+#                       + quality 7.30% + momentum 5.80% + ex_usa 1.52%
 #   crypto     3.65%  → btc 2.92% + crypto_basket 0.73%
 #   bonds      3.65%  → eur_gov_direct 0.365% + eur_gov_1_3y 1.6425%
 #                       + eur_gov_7_10y 1.6425%
@@ -69,7 +69,7 @@ weight = 0.058
 
 [[assets]]
 key    = "ex_usa"
-weight = 0.015
+weight = 0.0152   # rounded up by 0.02% so the flattened sleeve totals to 1.0000 exactly
 
 # Crypto sleeve
 [[assets]]
