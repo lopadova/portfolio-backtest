@@ -18,6 +18,7 @@ from src.ai_analyzer import (
     LocalAnalyzer,
     DEFAULT_MODELS,
     DEFAULT_ENDPOINTS,
+    MAX_OUTPUT_TOKENS,
     SYSTEM_PROMPT,
 )
 
@@ -232,3 +233,91 @@ class TestMockedCalls:
         analyzer = OpenAiAnalyzer()
         with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
             analyzer.analyze("prompt")
+
+
+class TestTruncationDetection:
+    """Regression: previously `max_tokens=2000` silently truncated long
+    structured responses (5-section analysis from Claude Opus 4.7) and the
+    UI gave no signal. The fix bumps the cap and surfaces `finish_reason ==
+    "length"` (OpenAI-compatible) / `stop_reason == "max_tokens"`
+    (Anthropic) as `AiResponse.truncated`."""
+
+    def test_max_output_tokens_is_at_least_8000(self):
+        # Sanity bound: must be high enough for the 5-section response
+        # required by SYSTEM_PROMPT. Don't lower without re-evaluating.
+        assert MAX_OUTPUT_TOKENS >= 8000
+
+    @patch("src.ai_analyzer.urlopen")
+    def test_openrouter_marks_truncated_on_length(self, mock_urlopen, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        mock_response = MagicMock()
+        mock_response.read.return_value = (
+            b'{"choices":[{"message":{"content":"cut"},"finish_reason":"length"}],'
+            b'"usage":{"prompt_tokens":10,"completion_tokens":8000}}'
+        )
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        result = OpenRouterAnalyzer().analyze("prompt")
+        assert result.truncated is True
+
+    @patch("src.ai_analyzer.urlopen")
+    def test_openrouter_not_truncated_on_stop(self, mock_urlopen, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        mock_response = MagicMock()
+        mock_response.read.return_value = (
+            b'{"choices":[{"message":{"content":"done"},"finish_reason":"stop"}],'
+            b'"usage":{}}'
+        )
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        result = OpenRouterAnalyzer().analyze("prompt")
+        assert result.truncated is False
+
+    @patch("src.ai_analyzer.urlopen")
+    def test_openrouter_not_truncated_when_field_missing(self, mock_urlopen, monkeypatch):
+        # Some local servers omit `finish_reason`; that must not be read as
+        # truncated (would spam false-positive warnings in the UI).
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        mock_response = MagicMock()
+        mock_response.read.return_value = (
+            b'{"choices":[{"message":{"content":"ok"}}],"usage":{}}'
+        )
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        result = OpenRouterAnalyzer().analyze("prompt")
+        assert result.truncated is False
+
+    @patch("src.ai_analyzer.urlopen")
+    def test_anthropic_marks_truncated_on_max_tokens(self, mock_urlopen, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        mock_response = MagicMock()
+        mock_response.read.return_value = (
+            b'{"content":[{"text":"cut"}],"stop_reason":"max_tokens",'
+            b'"usage":{"input_tokens":10,"output_tokens":8000}}'
+        )
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        result = AnthropicAnalyzer().analyze("prompt")
+        assert result.truncated is True
+
+    @patch("src.ai_analyzer.urlopen")
+    def test_anthropic_not_truncated_on_end_turn(self, mock_urlopen, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        mock_response = MagicMock()
+        mock_response.read.return_value = (
+            b'{"content":[{"text":"done"}],"stop_reason":"end_turn","usage":{}}'
+        )
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        result = AnthropicAnalyzer().analyze("prompt")
+        assert result.truncated is False
+
+    def test_save_analysis_records_truncation(self, tmp_path):
+        response = AiResponse(
+            content="partial", provider="openrouter", model="x",
+            prompt_tokens=10, completion_tokens=8000, truncated=True,
+        )
+        out = tmp_path / "AI.md"
+        save_analysis(response, out)
+        text = out.read_text(encoding="utf-8")
+        assert "Truncated" in text
