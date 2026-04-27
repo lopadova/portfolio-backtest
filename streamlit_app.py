@@ -12,8 +12,8 @@ Deploy to HuggingFace Spaces: add a Dockerfile (see README) and push.
 
 PR4 architecture:
   - Sidebar: brand + links only (no widgets).
-  - First tab "⚙️ Impostazioni" with 4 sections (Portafoglio, Periodo,
-    Motore, Analisi avanzate) — assembles a Portfolio in session_state
+  - First tab "⚙️ Settings" with 4 sections (Portfolio, Period,
+    Engine, Advanced analyses) — assembles a Portfolio in session_state
     without ever mutating module globals.
   - Post-run tabs appear when a run completes: Summary, Charts, Monte
     Carlo, AI Analysis. Frontier / FIRE / Walk-forward are placeholder
@@ -139,7 +139,7 @@ def _load_data_cached(synthetic: bool):
 # ===========================================================================
 
 def _ensure_session_defaults() -> None:
-    """Initialize the session-state keys used by the Impostazioni tab so
+    """Initialize the session-state keys used by the Settings tab so
     reading them later never KeyErrors."""
     defaults = {
         "data_mode": "Synthetic (demo)",
@@ -222,26 +222,26 @@ st.title("📊 Portfolio Backtest Engine")
 
 _ensure_session_defaults()
 
-# Tab labels built dynamically: Impostazioni first, then the post-run tabs
+# Tab labels built dynamically: Settings first, then the post-run tabs
 # that are always "visible" (empty info panel if no run yet).
 (
     tab_settings, tab_summary, tab_charts, tab_mc,
     tab_frontier, tab_fire, tab_walkforward, tab_ai, tab_saved,
 ) = st.tabs([
-    "⚙️ Impostazioni",
+    "⚙️ Settings",
     "📊 Summary",
     "📈 Charts",
     "🎲 Monte Carlo",
     "📐 Efficient Frontier",
     "🔥 FIRE",
-    "🌀 Simulazione storica",
+    "🌀 Walk-forward",
     "🤖 AI Analysis",
-    "📂 Portafogli salvati",
+    "📂 Saved portfolios",
 ])
 
 
 # ===========================================================================
-# Tab: Impostazioni
+# Tab: Settings
 # ===========================================================================
 
 with tab_settings:
@@ -254,8 +254,8 @@ with tab_settings:
         # When the user picks a preset, load it into session_state BEFORE the
         # widgets below are rendered (we do it on button click so the choice
         # is deterministic, not magically on dropdown change).
-        picked = st.selectbox("Carica preset", preset_options, index=0)
-        if st.button("📂 Carica", disabled=(picked == preset_options[0])):
+        picked = st.selectbox("Load preset", preset_options, index=0)
+        if st.button("📂 Load", disabled=(picked == preset_options[0])):
             portfolio = Portfolio.from_name(picked)
             st.session_state["portfolio_name"] = portfolio.name
             st.session_state["portfolio_assets"] = [
@@ -272,7 +272,7 @@ with tab_settings:
 
     with col_name:
         st.session_state["portfolio_name"] = st.text_input(
-            "Nome portafoglio", value=st.session_state["portfolio_name"],
+            "Portfolio name", value=st.session_state["portfolio_name"],
         )
 
     with col_data:
@@ -298,8 +298,8 @@ with tab_settings:
 
     st.divider()
 
-    # ------ 🎯 Portafoglio ---------------------------------------------------
-    st.subheader("🎯 Portafoglio")
+    # ------ 🎯 Portfolio -----------------------------------------------------
+    st.subheader("🎯 Portfolio")
 
     # Build the picker options list from assets that are actually SIMULATABLE
     # with the currently loaded return bundle. The catalog also contains
@@ -326,31 +326,31 @@ with tab_settings:
     })
     if invalid_portfolio_keys:
         st.error(
-            "Alcuni asset nel portafoglio non sono simulabili con il dataset "
-            "corrente (mancano in `bundle.monthly_returns_eur`). Rimuovili "
-            f"prima di lanciare: {', '.join(invalid_portfolio_keys)}"
+            "Some assets in the portfolio cannot be simulated with the current "
+            "dataset (missing from `bundle.monthly_returns_eur`). Remove them "
+            f"before running: {', '.join(invalid_portfolio_keys)}"
         )
 
     pick_col, weight_col, btn_col = st.columns([6, 2, 2])
     with pick_col:
         picked_key = st.selectbox(
-            "Aggiungi asset",
+            "Add asset",
             options=available_asset_keys,
             format_func=lambda k: key_to_display[k],
             key="_asset_picker",
         )
     with weight_col:
         picked_weight_pct = st.number_input(
-            "Peso %", min_value=0.0, max_value=100.0, value=10.0, step=0.5,
+            "Weight %", min_value=0.0, max_value=100.0, value=10.0, step=0.5,
             key="_asset_picker_weight",
         )
     with btn_col:
         st.write("")  # vertical alignment
         st.write("")
-        if st.button("＋ Aggiungi", use_container_width=True):
+        if st.button("＋ Add", use_container_width=True):
             existing_keys = {a["key"] for a in st.session_state["portfolio_assets"]}
             if picked_key in existing_keys:
-                st.warning(f"{picked_key!r} è già nel portafoglio; modifica il peso sulla riga esistente.")
+                st.warning(f"{picked_key!r} is already in the portfolio; edit the weight on the existing row.")
             else:
                 st.session_state["portfolio_assets"].append(
                     {"key": picked_key, "weight": picked_weight_pct / 100.0}
@@ -365,8 +365,8 @@ with tab_settings:
         rows.append({
             "Asset": info.display_name if info else a["key"],
             "Key": a["key"],
-            "Dati dal": format_asset_start_date(info),
-            "Peso %": round(a["weight"] * 100, 4),
+            "Data from": format_asset_start_date(info),
+            "Weight %": round(a["weight"] * 100, 4),
         })
 
     if rows:
@@ -380,11 +380,11 @@ with tab_settings:
             pd.DataFrame(rows),
             hide_index=True,
             use_container_width=True,
-            disabled=["Asset", "Key", "Dati dal"],
+            disabled=["Asset", "Key", "Data from"],
             num_rows="dynamic",
             column_config={
-                "Peso %": st.column_config.NumberColumn(
-                    "Peso %", min_value=0.0, max_value=100.0, step=0.5, format="%.2f",
+                "Weight %": st.column_config.NumberColumn(
+                    "Weight %", min_value=0.0, max_value=100.0, step=0.5, format="%.2f",
                 ),
             },
             key="_portfolio_editor",
@@ -400,35 +400,35 @@ with tab_settings:
             key = row["Key"]
             if pd.isna(key) or str(key).strip() == "":
                 continue
-            raw_weight = row["Peso %"]
+            raw_weight = row["Weight %"]
             weight_pct = 0.0 if pd.isna(raw_weight) else float(raw_weight)
             st.session_state["portfolio_assets"].append(
                 {"key": key, "weight": weight_pct / 100.0}
             )
     else:
-        st.info("Nessun asset selezionato. Usa il picker qui sopra o carica un preset.")
+        st.info("No assets selected. Use the picker above or load a preset.")
 
     # Sum-of-weights badge
     total_weight = sum(a["weight"] for a in st.session_state["portfolio_assets"])
     total_pct = total_weight * 100
     sum_ok = abs(total_weight - 1.0) <= 0.002
     if sum_ok and st.session_state["portfolio_assets"]:
-        st.markdown(f"**Totale:** 🟢 {total_pct:.2f}%")
+        st.markdown(f"**Total:** 🟢 {total_pct:.2f}%")
     elif st.session_state["portfolio_assets"]:
         missing = 100.0 - total_pct
         st.markdown(
-            f"**Totale:** 🔴 {total_pct:.2f}%  "
-            f"_(manca {missing:+.2f}% — deve essere 100% per poter lanciare)_"
+            f"**Total:** 🔴 {total_pct:.2f}%  "
+            f"_(missing {missing:+.2f}% — must equal 100% before you can run)_"
         )
     else:
-        st.markdown("**Totale:** ⚪ 0.00%")
+        st.markdown("**Total:** ⚪ 0.00%")
 
     st.divider()
 
-    # ------ 📅 Periodo -------------------------------------------------------
-    st.subheader("📅 Periodo")
+    # ------ 📅 Period --------------------------------------------------------
+    st.subheader("📅 Period")
     date_range = st.date_input(
-        "Intervallo di analisi",
+        "Analysis interval",
         value=(data_start.date(), data_end.date()),
         min_value=data_start.date(),
         max_value=data_end.date(),
@@ -459,13 +459,13 @@ with tab_settings:
 
     st.divider()
 
-    # ------ ⚙️ Motore --------------------------------------------------------
-    st.subheader("⚙️ Motore")
+    # ------ ⚙️ Engine --------------------------------------------------------
+    st.subheader("⚙️ Engine")
 
     nav_col, opt_col, reb_col, tc_col = st.columns([3, 3, 3, 2])
     with nav_col:
         st.session_state["start_nav"] = st.number_input(
-            "NAV iniziale (€)", min_value=1000.0, step=10_000.0,
+            "Initial NAV (€)", min_value=1000.0, step=10_000.0,
             value=float(st.session_state["start_nav"]),
         )
     with opt_col:
@@ -482,7 +482,7 @@ with tab_settings:
         )
     with reb_col:
         st.session_state["rebalance_freq"] = st.radio(
-            "Ribilanciamento",
+            "Rebalancing",
             list(_REBALANCE_FREQ_TO_MONTHS.keys()),
             index=list(_REBALANCE_FREQ_TO_MONTHS.keys()).index(
                 st.session_state["rebalance_freq"]
@@ -498,8 +498,8 @@ with tab_settings:
 
     st.divider()
 
-    # ------ 🎲 Analisi avanzate ---------------------------------------------
-    st.subheader("🎲 Analisi avanzate")
+    # ------ 🎲 Advanced analyses --------------------------------------------
+    st.subheader("🎲 Advanced analyses")
 
     st.session_state["mc_enabled"] = st.checkbox(
         "Monte Carlo (block bootstrap)", value=st.session_state["mc_enabled"],
@@ -513,13 +513,13 @@ with tab_settings:
         )
     with mc_col2:
         st.session_state["mc_years"] = st.number_input(
-            "Horizon (anni)", min_value=1, max_value=40,
+            "Horizon (years)", min_value=1, max_value=40,
             value=int(st.session_state["mc_years"]),
             disabled=not st.session_state["mc_enabled"],
         )
     with mc_col3:
         st.session_state["mc_block_size"] = st.number_input(
-            "Block (mesi)", min_value=1, max_value=24,
+            "Block size (months)", min_value=1, max_value=24,
             value=int(st.session_state["mc_block_size"]),
             disabled=not st.session_state["mc_enabled"],
         )
@@ -559,12 +559,12 @@ with tab_settings:
             c_age, c_sex, c_end = st.columns(3)
             with c_age:
                 st.session_state["fire_current_age"] = st.number_input(
-                    "Età attuale", min_value=18, max_value=100,
+                    "Current age", min_value=18, max_value=100,
                     value=int(st.session_state["fire_current_age"]),
                 )
             with c_sex:
                 st.session_state["fire_sex"] = st.radio(
-                    "Sesso", ["M", "F"],
+                    "Sex", ["M", "F"],
                     index=0 if st.session_state["fire_sex"] == "M" else 1,
                     horizontal=True,
                 )
@@ -579,17 +579,17 @@ with tab_settings:
             c_cap, c_contr, c_freq = st.columns(3)
             with c_cap:
                 st.session_state["fire_initial_capital"] = st.number_input(
-                    "Capitale iniziale (€)", min_value=0.0, step=10_000.0,
+                    "Initial capital (€)", min_value=0.0, step=10_000.0,
                     value=float(st.session_state["fire_initial_capital"]),
                 )
             with c_contr:
                 st.session_state["fire_contribution_amount"] = st.number_input(
-                    "Contributo periodico (€)", min_value=0.0, step=100.0,
+                    "Periodic contribution (€)", min_value=0.0, step=100.0,
                     value=float(st.session_state["fire_contribution_amount"]),
                 )
             with c_freq:
                 st.session_state["fire_contribution_frequency"] = st.radio(
-                    "Frequenza contributo",
+                    "Contribution frequency",
                     ["month", "year"],
                     index=0 if st.session_state["fire_contribution_frequency"] == "month" else 1,
                     horizontal=True,
@@ -604,36 +604,36 @@ with tab_settings:
                 )
             with c_spend:
                 st.session_state["fire_monthly_spending"] = st.number_input(
-                    "Spesa mensile post-FIRE (€)", min_value=0.0, step=100.0,
+                    "Monthly spending post-FIRE (€)", min_value=0.0, step=100.0,
                     value=float(st.session_state["fire_monthly_spending"]),
                 )
             with c_infl:
                 st.session_state["fire_inflation_rate"] = st.number_input(
-                    "Inflazione annua", min_value=0.0, max_value=0.25, step=0.005,
+                    "Annual inflation", min_value=0.0, max_value=0.25, step=0.005,
                     value=float(st.session_state["fire_inflation_rate"]),
                     format="%.3f",
                 )
 
             # Pension
             st.session_state["fire_pension_enabled"] = st.checkbox(
-                "Pensione attiva",
+                "Pension active",
                 value=st.session_state["fire_pension_enabled"],
             )
             if st.session_state["fire_pension_enabled"]:
                 c_pamt, c_page, c_prev = st.columns(3)
                 with c_pamt:
                     st.session_state["fire_pension_monthly_amount"] = st.number_input(
-                        "Pensione mensile (€)", min_value=0.0, step=50.0,
+                        "Monthly pension (€)", min_value=0.0, step=50.0,
                         value=float(st.session_state["fire_pension_monthly_amount"]),
                     )
                 with c_page:
                     st.session_state["fire_pension_start_age"] = st.number_input(
-                        "Età inizio pensione", min_value=40, max_value=80,
+                        "Pension start age", min_value=40, max_value=80,
                         value=int(st.session_state["fire_pension_start_age"]),
                     )
                 with c_prev:
                     st.session_state["fire_pension_revaluation"] = st.slider(
-                        "Rivalutazione INPS (frazione)", min_value=0.0, max_value=1.0,
+                        "INPS revaluation (fraction)", min_value=0.0, max_value=1.0,
                         value=float(st.session_state["fire_pension_revaluation"]),
                         step=0.05,
                         help="1.0 = full inflation match (100% INPS perequazione); 0.75 = 75%.",
@@ -643,12 +643,12 @@ with tab_settings:
             c_tax_on, c_tax_r = st.columns(2)
             with c_tax_on:
                 st.session_state["fire_tax_on_withdrawals"] = st.checkbox(
-                    "CGT sui prelievi",
+                    "CGT on withdrawals",
                     value=st.session_state["fire_tax_on_withdrawals"],
                 )
             with c_tax_r:
                 st.session_state["fire_tax_rate"] = st.number_input(
-                    "Aliquota (frazione)", min_value=0.0, max_value=1.0, step=0.01,
+                    "Tax rate (fraction)", min_value=0.0, max_value=1.0, step=0.01,
                     value=float(st.session_state["fire_tax_rate"]),
                     format="%.2f",
                     disabled=not st.session_state["fire_tax_on_withdrawals"],
@@ -664,7 +664,7 @@ with tab_settings:
                 )
             with c_blk:
                 st.session_state["fire_block_size"] = st.number_input(
-                    "Block size (mesi)", min_value=1, max_value=24,
+                    "Block size (months)", min_value=1, max_value=24,
                     value=int(st.session_state["fire_block_size"]),
                 )
             with c_seed:
@@ -673,9 +673,9 @@ with tab_settings:
                     value=int(st.session_state["fire_seed"]),
                 )
 
-    # --- Walk-forward (Simulazione Ongaro) ---------------------------------
+    # --- Walk-forward (historical rolling-window simulation) ----------------
     st.session_state["walkforward_enabled"] = st.checkbox(
-        "Simulazione storica (walk-forward / Ongaro)",
+        "Walk-forward (historical rolling window)",
         value=st.session_state["walkforward_enabled"],
         help=(
             "Rolls a fixed-size window across the history, simulating the "
@@ -689,20 +689,20 @@ with tab_settings:
     c_ww, c_ws = st.columns(2)
     with c_ww:
         st.session_state["walkforward_window_years"] = st.number_input(
-            "Window (anni)", min_value=1, max_value=30,
+            "Window (years)", min_value=1, max_value=30,
             value=int(st.session_state["walkforward_window_years"]),
             disabled=not st.session_state["walkforward_enabled"],
         )
     with c_ws:
         st.session_state["walkforward_step_months"] = st.number_input(
-            "Step (mesi)", min_value=1, max_value=60,
+            "Step (months)", min_value=1, max_value=60,
             value=int(st.session_state["walkforward_step_months"]),
             disabled=not st.session_state["walkforward_enabled"],
         )
 
     # Benchmarks
     st.session_state["selected_benchmarks"] = st.multiselect(
-        "Benchmarks di confronto",
+        "Comparison benchmarks",
         options=list(BENCHMARKS.keys()),
         default=st.session_state["selected_benchmarks"],
     )
@@ -728,12 +728,12 @@ with tab_settings:
 
 
 # ===========================================================================
-# Run the backtest (triggered from the Impostazioni tab)
+# Run the backtest (triggered from the Settings tab)
 # ===========================================================================
 
 if run_btn:
     # Build the Portfolio from session_state. If validation fails, surface
-    # the error in the Impostazioni tab and don't proceed.
+    # the error in the Settings tab and don't proceed.
     try:
         user_portfolio = build_portfolio_from_ui_state(
             name=st.session_state["portfolio_name"],
@@ -750,7 +750,7 @@ if run_btn:
     # Clamp the user-selected start to the earliest date at which all
     # portfolio assets have data — otherwise the engine would implicitly
     # treat pre-start months as 0% returns for assets with partial history,
-    # contradicting the warning we showed in the Impostazioni tab
+    # contradicting the warning we showed in the Settings tab
     # ("effective start = ..."). compute_effective_start returns the
     # constraining start_date when user_start is too early.
     effective_start, _ = compute_effective_start(start_date, user_portfolio, catalog)
@@ -864,9 +864,9 @@ if run_btn:
             available_years = common_history_years(bundle_sliced, user_portfolio)
             if available_years < window_years:
                 walkforward_skipped_reason = (
-                    f"Storico insufficiente: {available_years:.1f} anni di storia comune "
-                    f"tra gli asset del portafoglio, servono almeno {window_years}. "
-                    f"La simulazione storica non è stata eseguita."
+                    f"Insufficient history: {available_years:.1f} years of common "
+                    f"history across portfolio assets, at least {window_years} are required. "
+                    f"Walk-forward simulation was skipped."
                 )
             else:
                 with st.spinner(
@@ -893,7 +893,7 @@ if run_btn:
                         walkforward_result = (wf_df, wf_stats, window_years, step_months)
                     except ValueError as e:
                         walkforward_skipped_reason = (
-                            f"Walk-forward non eseguibile su questo bundle: {e}"
+                            f"Walk-forward not runnable on this bundle: {e}"
                         )
 
     # Output directory: ephemeral tempdir unless user ticked Save
@@ -963,7 +963,7 @@ last_run = st.session_state.get("last_run")
 
 with tab_summary:
     if last_run is None:
-        st.info("👈 Configura il portafoglio e premi **▶ Run backtest** nel tab Impostazioni.")
+        st.info("👈 Configure the portfolio and press **▶ Run backtest** in the Settings tab.")
     else:
         st.subheader("Summary statistics")
         st.dataframe(
@@ -994,22 +994,22 @@ with tab_summary:
 
         # ---- PR6: save the portfolio that was just simulated --------------
         st.divider()
-        st.subheader("💾 Salva portafoglio")
+        st.subheader("💾 Save portfolio")
         with st.form("save_portfolio_form", clear_on_submit=False):
             default_name = last_run["portfolio"].name
             save_name = st.text_input(
-                "Nome", value=default_name,
-                help="Il nome umano; lo slug del filename viene derivato automaticamente.",
+                "Name", value=default_name,
+                help="Human-readable name; the filename slug is derived automatically.",
             )
             save_notes = st.text_area(
-                "Note (opzionale)", value=last_run["portfolio"].notes,
-                help="Commento libero memorizzato nel TOML come campo 'notes'.",
+                "Notes (optional)", value=last_run["portfolio"].notes,
+                help="Free-form comment stored in the TOML 'notes' field.",
             )
             save_overwrite = st.checkbox(
-                "Sovrascrivi se esiste già un preset con lo stesso slug",
+                "Overwrite if a preset with the same slug already exists",
                 value=False,
             )
-            submitted = st.form_submit_button("💾 Salva", type="primary")
+            submitted = st.form_submit_button("💾 Save", type="primary")
         if submitted:
             try:
                 slug = slugify(save_name)
@@ -1040,18 +1040,18 @@ with tab_summary:
                     cached_metrics=metrics_cache,
                 )
                 written = to_save.save_to(target, overwrite=save_overwrite)
-                st.success(f"Portafoglio salvato in `{written}`")
+                st.success(f"Portfolio saved to `{written}`")
             except FileExistsError as e:
                 st.error(
-                    f"{e} Spunta 'Sovrascrivi' e riprova, oppure usa un altro nome."
+                    f"{e} Tick 'Overwrite' and retry, or pick a different name."
                 )
             except ValueError as e:
-                st.error(f"Impossibile salvare: {e}")
+                st.error(f"Unable to save: {e}")
 
 
 with tab_charts:
     if last_run is None:
-        st.info("Nessun risultato ancora. Lancia un backtest per vedere i grafici.")
+        st.info("No results yet. Run a backtest to see the charts.")
     else:
         output_dir = last_run["output_dir"]
         chart_specs = [
@@ -1077,8 +1077,8 @@ with tab_charts:
 with tab_mc:
     if last_run is None or last_run["mc_stats"] is None:
         st.info(
-            "Monte Carlo non attivato. Abilitalo nel tab **Impostazioni → 🎲 Analisi avanzate** "
-            "e rilancia il backtest."
+            "Monte Carlo not enabled. Turn it on in **Settings → 🎲 Advanced analyses** "
+            "and run the backtest again."
         )
     else:
         st.subheader("Monte Carlo scenarios")
@@ -1086,15 +1086,15 @@ with tab_mc:
         start_nav = last_run["start_nav"]
         col1, col2, col3 = st.columns(3)
         col1.metric(
-            "🔴 Prudente (10°)", f"€{sc.prudente_wealth * start_nav:,.0f}",
+            "🔴 Conservative (10th)", f"€{sc.prudente_wealth * start_nav:,.0f}",
             f"{sc.prudente_cagr * 100:+.2f}% CAGR",
         )
         col2.metric(
-            "🔵 Mediana (50°)", f"€{sc.mediana_wealth * start_nav:,.0f}",
+            "🔵 Median (50th)", f"€{sc.mediana_wealth * start_nav:,.0f}",
             f"{sc.mediana_cagr * 100:+.2f}% CAGR",
         )
         col3.metric(
-            "🟢 Ottimista (90°)", f"€{sc.ottimista_wealth * start_nav:,.0f}",
+            "🟢 Optimistic (90th)", f"€{sc.ottimista_wealth * start_nav:,.0f}",
             f"{sc.ottimista_cagr * 100:+.2f}% CAGR",
         )
 
@@ -1119,8 +1119,8 @@ with tab_mc:
 with tab_frontier:
     if last_run is None or last_run.get("frontier_result") is None:
         st.info(
-            "Efficient Frontier non attivato. Abilitalo nel tab **Impostazioni → "
-            "🎲 Analisi avanzate** e rilancia il backtest."
+            "Efficient Frontier not enabled. Turn it on in **Settings → "
+            "🎲 Advanced analyses** and run the backtest again."
         )
     else:
         (
@@ -1129,10 +1129,10 @@ with tab_frontier:
         ) = last_run["frontier_result"]
         output_dir = last_run["output_dir"]
 
-        st.subheader(f"Efficient Frontier — universo {last_run['portfolio'].name}")
+        st.subheader(f"Efficient Frontier — universe {last_run['portfolio'].name}")
         st.caption(
             f"{len(random_eval_df):,} random portfolios + Markowitz frontier, "
-            f"su {len(asset_names)} asset (cash esclusa)."
+            f"on {len(asset_names)} assets (cash excluded)."
         )
 
         # Static PNG (matplotlib)
@@ -1177,8 +1177,8 @@ with tab_frontier:
 with tab_fire:
     if last_run is None or (last_run.get("fire_result") is None and not last_run.get("fire_error")):
         st.info(
-            "FIRE calculator non attivato. Abilitalo nel tab **Impostazioni → "
-            "🎲 Analisi avanzate** e configura i parametri."
+            "FIRE calculator not enabled. Turn it on in **Settings → "
+            "🎲 Advanced analyses** and configure the parameters."
         )
     elif last_run.get("fire_error"):
         st.error(f"FIRE configuration error: {last_run['fire_error']}")
@@ -1230,15 +1230,15 @@ with tab_walkforward:
         and not last_run.get("walkforward_skipped_reason")
     ):
         st.info(
-            "Simulazione storica non attivata. Abilitala nel tab **Impostazioni "
-            "→ 🎲 Analisi avanzate** e rilancia il backtest."
+            "Walk-forward not enabled. Turn it on in **Settings → "
+            "🎲 Advanced analyses** and run the backtest again."
         )
     elif last_run.get("walkforward_skipped_reason"):
         st.warning(f"⚠️ {last_run['walkforward_skipped_reason']}")
         st.caption(
-            "Il gating richiede almeno `window_years` di storia condivisa tra "
-            "tutti gli asset (cash esclusa). Riduci la finestra o costruisci un "
-            "portafoglio con asset più longevi."
+            "The gate requires at least `window_years` of common history across "
+            "all assets (cash excluded). Shrink the window or build a portfolio "
+            "with longer-lived assets."
         )
     else:
         # Unpack the snapshot saved by the Run path — step_months is the
@@ -1277,14 +1277,14 @@ with tab_walkforward:
 
 with tab_ai:
     if last_run is None:
-        st.info("Lancia prima un backtest per poter inviare i risultati all'LLM.")
+        st.info("Run a backtest first so the results can be sent to the LLM.")
     else:
         st.subheader("🤖 AI Analysis")
-        st.caption("Default provider: **OpenRouter**. Richiede OPENROUTER_API_KEY (vedi README / .env).")
+        st.caption("Default provider: **OpenRouter**. Requires OPENROUTER_API_KEY (see README / .env).")
         ai_provider = st.selectbox(
             "Provider", ["openrouter", "openai", "anthropic", "local"], index=0,
         )
-        ai_model = st.text_input("Model (vuoto = default per provider)", "")
+        ai_model = st.text_input("Model (empty = provider default)", "")
         if st.button("🤖 Run AI analysis"):
             from src.ai_analyzer import build_analysis_prompt, get_analyzer, save_analysis
 
@@ -1312,17 +1312,17 @@ Summary statistics:
 
 
 with tab_saved:
-    st.subheader("📂 Portafogli salvati")
+    st.subheader("📂 Saved portfolios")
     st.caption(
-        "Portafogli scritti in `portfolios/*.toml` dal bottone 💾 Salva "
-        "portafoglio (o da `backtest.py --save-as NAME`). I preset shipped "
-        "nel repo (marcati 📌) non possono essere eliminati o sovrascritti "
-        "dalla UI — sono parte del codice e si aggiornano via PR."
+        "Portfolios written to `portfolios/*.toml` by the 💾 Save portfolio "
+        "button (or by `backtest.py --save-as NAME`). Presets shipped in the "
+        "repo (marked 📌) cannot be deleted or overwritten from the UI — they "
+        "are part of the codebase and change via PRs."
     )
 
     _entries = list_available_presets()
     if not _entries:
-        st.info("Nessun preset disponibile. Salva un portafoglio dal tab Summary post-run.")
+        st.info("No presets available. Save a portfolio from the Summary tab after a run.")
     else:
         for _e in _entries:
             _name = _e["name"]
@@ -1350,20 +1350,20 @@ with tab_saved:
                     c4.metric("Period", _period_label)
                 else:
                     st.caption(
-                        f"{_e['n_assets']} asset · nessuna metrica cached "
-                        "(nessuna run è stata salvata su questo preset)"
+                        f"{_e['n_assets']} assets · no cached metrics "
+                        "(no run has been saved against this preset)"
                     )
 
                 # Actions row
                 _act_load, _act_del, _pad = st.columns([1, 1, 4])
                 with _act_load:
-                    if st.button("▶ Carica", key=f"_load_{_name}", use_container_width=True):
+                    if st.button("▶ Load", key=f"_load_{_name}", use_container_width=True):
                         try:
                             _loaded = Portfolio.from_toml(_e["path"])
                         except Exception as exc:
-                            st.error(f"Impossibile caricare {_name!r}: {exc}")
+                            st.error(f"Unable to load {_name!r}: {exc}")
                         else:
-                            # Repopulate the Impostazioni state
+                            # Repopulate the Settings state
                             st.session_state["portfolio_name"] = _loaded.name
                             st.session_state["portfolio_assets"] = [
                                 {"key": a.key, "weight": a.weight}
@@ -1376,7 +1376,7 @@ with tab_saved:
                             # custom cadence (valid in the Portfolio model but
                             # not selectable from the radio), fall back to the
                             # first UI option and warn the user — otherwise the
-                            # Impostazioni tab would silently keep the PREVIOUS
+                            # Settings tab would silently keep the PREVIOUS
                             # selection, masking the mismatch.
                             _matched_label = next(
                                 (
@@ -1390,17 +1390,17 @@ with tab_saved:
                                 _fallback_label = next(iter(_REBALANCE_FREQ_TO_MONTHS))
                                 st.session_state["rebalance_freq"] = _fallback_label
                                 st.warning(
-                                    f"Il preset usa rebalance_months={_loaded.rebalance_months} "
-                                    "— non tra le opzioni della radio UI "
+                                    f"Preset uses rebalance_months={_loaded.rebalance_months} "
+                                    "— not in the UI radio options "
                                     f"({list(_REBALANCE_FREQ_TO_MONTHS.keys())}). "
-                                    f"Selezionata la predefinita {_fallback_label!r}; "
-                                    "modifica manualmente se necessario."
+                                    f"Defaulted to {_fallback_label!r}; "
+                                    "edit manually if needed."
                                 )
                             else:
                                 st.session_state["rebalance_freq"] = _matched_label
                             st.success(
-                                f"Caricato {_loaded.name!r}. Vai nel tab ⚙️ Impostazioni e premi "
-                                "▶ Run backtest per rieseguire."
+                                f"Loaded {_loaded.name!r}. Go to the ⚙️ Settings tab and press "
+                                "▶ Run backtest to re-run."
                             )
                             st.rerun()
 
@@ -1409,7 +1409,7 @@ with tab_saved:
                         st.button(
                             "🔒 Shipped", key=f"_del_{_name}",
                             disabled=True, use_container_width=True,
-                            help="Preset shipped nel repo: non eliminabile dalla UI.",
+                            help="Preset shipped in the repo: cannot be deleted from the UI.",
                         )
                     else:
                         # Two-click delete: the first click arms a confirm
@@ -1418,20 +1418,20 @@ with tab_saved:
                         _confirm_key = f"_confirm_del_{_name}"
                         if st.session_state.get(_confirm_key):
                             if st.button(
-                                "⚠️ Conferma elimina", key=f"_del_{_name}",
+                                "⚠️ Confirm delete", key=f"_del_{_name}",
                                 use_container_width=True, type="primary",
                             ):
                                 try:
                                     Path(_e["path"]).unlink()
-                                    st.success(f"Eliminato {_name!r}.")
+                                    st.success(f"Deleted {_name!r}.")
                                 except Exception as exc:
-                                    st.error(f"Impossibile eliminare: {exc}")
+                                    st.error(f"Unable to delete: {exc}")
                                 finally:
                                     st.session_state.pop(_confirm_key, None)
                                 st.rerun()
                         else:
                             if st.button(
-                                "🗑️ Elimina", key=f"_del_{_name}",
+                                "🗑️ Delete", key=f"_del_{_name}",
                                 use_container_width=True,
                             ):
                                 st.session_state[_confirm_key] = True

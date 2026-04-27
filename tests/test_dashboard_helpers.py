@@ -212,13 +212,13 @@ class TestComputeEffectiveStart:
 class TestFormatAssetStartDate:
     def test_with_start_date(self):
         info = _toy_catalog()["gold"]
-        # gold starts 2003-01-31 → "Gen 2003"
-        assert format_asset_start_date(info) == "Gen 2003"
+        # gold starts 2003-01-31 → "Jan 2003"
+        assert format_asset_start_date(info) == "Jan 2003"
 
     def test_btc_september(self):
         info = _toy_catalog()["btc"]
-        # btc starts 2014-09-17 → "Set 2014"
-        assert format_asset_start_date(info) == "Set 2014"
+        # btc starts 2014-09-17 → "Sep 2014"
+        assert format_asset_start_date(info) == "Sep 2014"
 
     def test_none_asset_info(self):
         assert format_asset_start_date(None) == "—"
@@ -228,10 +228,10 @@ class TestFormatAssetStartDate:
         assert format_asset_start_date(info) == "—"
 
     def test_all_months_mapped(self):
-        """Every month 1-12 maps to a recognized Italian abbreviation."""
+        """Every month 1-12 maps to a recognized English abbreviation."""
         expected = {
-            1: "Gen", 2: "Feb", 3: "Mar", 4: "Apr", 5: "Mag", 6: "Giu",
-            7: "Lug", 8: "Ago", 9: "Set", 10: "Ott", 11: "Nov", 12: "Dic",
+            1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
+            7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec",
         }
         for month, abbr in expected.items():
             info = AssetInfo(

@@ -82,7 +82,7 @@ class TestPromptBuilding:
     def test_prompt_mentions_structure(self):
         prompt = build_analysis_prompt("## Report")
         # Prompt should tell the model to respond per the system prompt's structure
-        assert "struttura" in prompt.lower() or "struttura" in SYSTEM_PROMPT.lower()
+        assert "structure" in prompt.lower() or "structured" in SYSTEM_PROMPT.lower()
 
 
 class TestSaveAnalysis:

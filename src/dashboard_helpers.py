@@ -21,9 +21,9 @@ from .data_loader import DataBundle
 from .fire import FireConfig
 from .portfolio_model import AssetAllocation, Portfolio
 
-_ITALIAN_MONTH_ABBR = (
-    "Gen", "Feb", "Mar", "Apr", "Mag", "Giu",
-    "Lug", "Ago", "Set", "Ott", "Nov", "Dic",
+_MONTH_ABBR = (
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 )
 
 
@@ -106,24 +106,24 @@ def compute_effective_start(
 
     display_name = catalog[constraining_key].display_name if constraining_key else constraining_key
     warning = (
-        f"Il periodo parte prima della disponibilità di \"{display_name}\": "
+        f"Selected period starts before \"{display_name}\" data is available: "
         f"effective start = {constraining_start.date().isoformat()}"
     )
     return constraining_start, warning
 
 
 def format_asset_start_date(info: Optional[AssetInfo]) -> str:
-    """Compact Italian-language start-date label for the asset picker table.
+    """Compact start-date label for the asset picker table.
 
     Returns:
       - ``"—"`` when ``info`` is ``None`` OR has no ``start_date``
         (cash, or a CSV not yet in data/raw/)
-      - ``"Gen 2003"`` style otherwise (Italian month abbreviation + year)
+      - ``"Jan 2003"`` style otherwise (English month abbreviation + year)
     """
     if info is None or info.start_date is None:
         return "—"
     d = info.start_date
-    return f"{_ITALIAN_MONTH_ABBR[d.month - 1]} {d.year}"
+    return f"{_MONTH_ABBR[d.month - 1]} {d.year}"
 
 
 # ============================================================================
