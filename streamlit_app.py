@@ -390,12 +390,21 @@ with tab_settings:
             key="_portfolio_editor",
         )
         # Reflect user edits + deletions back into session_state. Skip rows
-        # with a null/empty Key (placeholder rows added inline by the editor).
-        st.session_state["portfolio_assets"] = [
-            {"key": row["Key"], "weight": float(row["Peso %"] or 0.0) / 100.0}
-            for _, row in edited.iterrows()
-            if row["Key"] and not pd.isna(row["Key"])
-        ]
+        # with a missing/empty Key (placeholder rows added inline by the
+        # editor). Use ``pd.isna`` / ``pd.notna`` rather than Python truthiness:
+        # ``np.nan`` is truthy and ``pd.NA`` raises in boolean ops, so an
+        # ``or 0.0`` / ``if row["Key"]`` check would silently propagate NaN
+        # weights or crash with ``TypeError: boolean value of NA is ambiguous``.
+        st.session_state["portfolio_assets"] = []
+        for _, row in edited.iterrows():
+            key = row["Key"]
+            if pd.isna(key) or str(key).strip() == "":
+                continue
+            raw_weight = row["Peso %"]
+            weight_pct = 0.0 if pd.isna(raw_weight) else float(raw_weight)
+            st.session_state["portfolio_assets"].append(
+                {"key": key, "weight": weight_pct / 100.0}
+            )
     else:
         st.info("Nessun asset selezionato. Usa il picker qui sopra o carica un preset.")
 
