@@ -254,7 +254,10 @@ with tab_settings:
         # When the user picks a preset, load it into session_state BEFORE the
         # widgets below are rendered (we do it on button click so the choice
         # is deterministic, not magically on dropdown change).
-        picked = st.selectbox("Load preset", preset_options, index=0)
+        picked = st.selectbox(
+            "Load preset", preset_options, index=0,
+            help="Pick a portfolio preset shipped in the repo or saved from a previous run, then click Load to populate every widget below.",
+        )
         if st.button("📂 Load", disabled=(picked == preset_options[0])):
             portfolio = Portfolio.from_name(picked)
             st.session_state["portfolio_name"] = portfolio.name
@@ -273,6 +276,7 @@ with tab_settings:
     with col_name:
         st.session_state["portfolio_name"] = st.text_input(
             "Portfolio name", value=st.session_state["portfolio_name"],
+            help="Free-form display name shown in charts, the Save form, and the AI Analysis prompt.",
         )
 
     with col_data:
@@ -338,11 +342,13 @@ with tab_settings:
             options=available_asset_keys,
             format_func=lambda k: key_to_display[k],
             key="_asset_picker",
+            help="Pick an asset from the bundle (already filtered to keys that can actually be simulated on the loaded data).",
         )
     with weight_col:
         picked_weight_pct = st.number_input(
             "Weight %", min_value=0.0, max_value=100.0, value=10.0, step=0.5,
             key="_asset_picker_weight",
+            help="Weight (in percent of NAV) assigned to the new asset. Edit existing rows directly in the table below.",
         )
     with btn_col:
         st.write("")  # vertical alignment
@@ -432,6 +438,7 @@ with tab_settings:
         value=(data_start.date(), data_end.date()),
         min_value=data_start.date(),
         max_value=data_end.date(),
+        help="Start and end dates for the backtest. Auto-clamped to the latest start across all selected assets to avoid implicit zero-return padding.",
     )
     if isinstance(date_range, tuple) and len(date_range) == 2:
         start_date = pd.Timestamp(date_range[0])
@@ -467,6 +474,7 @@ with tab_settings:
         st.session_state["start_nav"] = st.number_input(
             "Initial NAV (€)", min_value=1000.0, step=10_000.0,
             value=float(st.session_state["start_nav"]),
+            help="Starting net asset value of the portfolio in euros. Drives the absolute wealth scale on charts and FIRE projections.",
         )
     with opt_col:
         st.session_state["options_overlay"] = st.checkbox(
@@ -487,6 +495,7 @@ with tab_settings:
             index=list(_REBALANCE_FREQ_TO_MONTHS.keys()).index(
                 st.session_state["rebalance_freq"]
             ),
+            help="How often the portfolio is rebalanced back to target weights. Semi-annual (Jan/Jul) is the article's default.",
         )
     with tc_col:
         st.session_state["transaction_cost_bps"] = st.number_input(
@@ -503,6 +512,7 @@ with tab_settings:
 
     st.session_state["mc_enabled"] = st.checkbox(
         "Monte Carlo (block bootstrap)", value=st.session_state["mc_enabled"],
+        help="Resamples blocks of the portfolio's historical returns to generate forward wealth scenarios and a fan chart.",
     )
     mc_col1, mc_col2, mc_col3 = st.columns(3)
     with mc_col1:
@@ -510,18 +520,21 @@ with tab_settings:
             "Paths", min_value=100, max_value=50_000,
             value=int(st.session_state["mc_paths"]),
             step=500, disabled=not st.session_state["mc_enabled"],
+            help="Number of simulated forward paths. 5,000-10,000 is usually enough for stable percentiles.",
         )
     with mc_col2:
         st.session_state["mc_years"] = st.number_input(
             "Horizon (years)", min_value=1, max_value=40,
             value=int(st.session_state["mc_years"]),
             disabled=not st.session_state["mc_enabled"],
+            help="How many years forward each path is simulated.",
         )
     with mc_col3:
         st.session_state["mc_block_size"] = st.number_input(
             "Block size (months)", min_value=1, max_value=24,
             value=int(st.session_state["mc_block_size"]),
             disabled=not st.session_state["mc_enabled"],
+            help="Length of the bootstrap blocks in months. 3-6 months preserves short-term autocorrelation; 1 = pure i.i.d. resampling.",
         )
 
     # --- Efficient Frontier ------------------------------------------------
@@ -561,12 +574,14 @@ with tab_settings:
                 st.session_state["fire_current_age"] = st.number_input(
                     "Current age", min_value=18, max_value=100,
                     value=int(st.session_state["fire_current_age"]),
+                    help="Your age today, in years. Drives the mortality sample and the accumulation horizon.",
                 )
             with c_sex:
                 st.session_state["fire_sex"] = st.radio(
                     "Sex", ["M", "F"],
                     index=0 if st.session_state["fire_sex"] == "M" else 1,
                     horizontal=True,
+                    help="Selects the ISTAT mortality table used to draw life expectancy (M = male, F = female).",
                 )
             with c_end:
                 st.session_state["fire_fixed_end_age"] = st.number_input(
@@ -581,11 +596,13 @@ with tab_settings:
                 st.session_state["fire_initial_capital"] = st.number_input(
                     "Initial capital (€)", min_value=0.0, step=10_000.0,
                     value=float(st.session_state["fire_initial_capital"]),
+                    help="Wealth invested in the portfolio at the start of the simulation (today).",
                 )
             with c_contr:
                 st.session_state["fire_contribution_amount"] = st.number_input(
                     "Periodic contribution (€)", min_value=0.0, step=100.0,
                     value=float(st.session_state["fire_contribution_amount"]),
+                    help="Amount added to the portfolio every period (see Frequency) during the accumulation phase.",
                 )
             with c_freq:
                 st.session_state["fire_contribution_frequency"] = st.radio(
@@ -593,6 +610,7 @@ with tab_settings:
                     ["month", "year"],
                     index=0 if st.session_state["fire_contribution_frequency"] == "month" else 1,
                     horizontal=True,
+                    help="How often the periodic contribution is added: 'month' = 12x/year, 'year' = 1x/year.",
                 )
 
             # Objective
@@ -601,23 +619,27 @@ with tab_settings:
                 st.session_state["fire_fire_age"] = st.number_input(
                     "FIRE age", min_value=20, max_value=120,
                     value=int(st.session_state["fire_fire_age"]),
+                    help="Age at which contributions stop and withdrawals begin. Must be strictly greater than the current age.",
                 )
             with c_spend:
                 st.session_state["fire_monthly_spending"] = st.number_input(
                     "Monthly spending post-FIRE (€)", min_value=0.0, step=100.0,
                     value=float(st.session_state["fire_monthly_spending"]),
+                    help="Monthly cash withdrawn from the portfolio after FIRE age (in today's euros; inflated each year).",
                 )
             with c_infl:
                 st.session_state["fire_inflation_rate"] = st.number_input(
                     "Annual inflation", min_value=0.0, max_value=0.25, step=0.005,
                     value=float(st.session_state["fire_inflation_rate"]),
                     format="%.3f",
+                    help="Yearly inflation rate as a decimal (0.02 = 2%). Inflates spending and pension across the simulation.",
                 )
 
             # Pension
             st.session_state["fire_pension_enabled"] = st.checkbox(
                 "Pension active",
                 value=st.session_state["fire_pension_enabled"],
+                help="Tick to add a fixed-amount monthly pension that kicks in at the configured start age and reduces portfolio withdrawals.",
             )
             if st.session_state["fire_pension_enabled"]:
                 c_pamt, c_page, c_prev = st.columns(3)
@@ -625,11 +647,13 @@ with tab_settings:
                     st.session_state["fire_pension_monthly_amount"] = st.number_input(
                         "Monthly pension (€)", min_value=0.0, step=50.0,
                         value=float(st.session_state["fire_pension_monthly_amount"]),
+                        help="Gross pension paid each month (in today's euros at the start of the pension phase).",
                     )
                 with c_page:
                     st.session_state["fire_pension_start_age"] = st.number_input(
                         "Pension start age", min_value=40, max_value=80,
                         value=int(st.session_state["fire_pension_start_age"]),
+                        help="Age at which the pension begins (typical Italian retirement age: 67).",
                     )
                 with c_prev:
                     st.session_state["fire_pension_revaluation"] = st.slider(
@@ -645,6 +669,7 @@ with tab_settings:
                 st.session_state["fire_tax_on_withdrawals"] = st.checkbox(
                     "CGT on withdrawals",
                     value=st.session_state["fire_tax_on_withdrawals"],
+                    help="Tick to apply capital-gains tax on the gain portion of each withdrawal during the spending phase.",
                 )
             with c_tax_r:
                 st.session_state["fire_tax_rate"] = st.number_input(
@@ -652,6 +677,7 @@ with tab_settings:
                     value=float(st.session_state["fire_tax_rate"]),
                     format="%.2f",
                     disabled=not st.session_state["fire_tax_on_withdrawals"],
+                    help="Capital-gains tax rate as a decimal (Italian CGT on financial assets is 0.26 = 26%).",
                 )
 
             # Simulation
@@ -661,16 +687,19 @@ with tab_settings:
                     "N simulations", min_value=100, max_value=10_000,
                     value=int(st.session_state["fire_n_simulations"]),
                     step=100,
+                    help="Number of Monte Carlo paths simulated. Higher = stabler tail estimates, slower.",
                 )
             with c_blk:
                 st.session_state["fire_block_size"] = st.number_input(
                     "Block size (months)", min_value=1, max_value=24,
                     value=int(st.session_state["fire_block_size"]),
+                    help="Length of the bootstrap blocks resampled from the portfolio's historical returns. 3-6 months preserves short-term autocorrelation.",
                 )
             with c_seed:
                 st.session_state["fire_seed"] = st.number_input(
                     "Seed", min_value=0, max_value=2_147_483_647,
                     value=int(st.session_state["fire_seed"]),
+                    help="Random seed for reproducibility. Same seed + same inputs = same paths.",
                 )
 
     # --- Walk-forward (historical rolling-window simulation) ----------------
@@ -692,12 +721,14 @@ with tab_settings:
             "Window (years)", min_value=1, max_value=30,
             value=int(st.session_state["walkforward_window_years"]),
             disabled=not st.session_state["walkforward_enabled"],
+            help="Length in years of each rolling backtest window. Must be ≤ the common-history span across all portfolio assets.",
         )
     with c_ws:
         st.session_state["walkforward_step_months"] = st.number_input(
             "Step (months)", min_value=1, max_value=60,
             value=int(st.session_state["walkforward_step_months"]),
             disabled=not st.session_state["walkforward_enabled"],
+            help="Stride between consecutive windows in months. 12 = annual cadence; 1 = monthly (more windows, more variance reported).",
         )
 
     # Benchmarks
@@ -705,6 +736,7 @@ with tab_settings:
         "Comparison benchmarks",
         options=list(BENCHMARKS.keys()),
         default=st.session_state["selected_benchmarks"],
+        help="Benchmark portfolios overlaid on every chart and stats table for context (60/40, 100% MSCI World, etc.).",
     )
 
     st.divider()
@@ -1008,6 +1040,7 @@ with tab_summary:
             save_overwrite = st.checkbox(
                 "Overwrite if a preset with the same slug already exists",
                 value=False,
+                help="Tick to replace an existing TOML file with the new contents. Without this, a name collision raises an error.",
             )
             submitted = st.form_submit_button("💾 Save", type="primary")
         if submitted:
@@ -1283,8 +1316,12 @@ with tab_ai:
         st.caption("Default provider: **OpenRouter**. Requires OPENROUTER_API_KEY (see README / .env).")
         ai_provider = st.selectbox(
             "Provider", ["openrouter", "openai", "anthropic", "local"], index=0,
+            help="LLM provider used to critique the backtest. OpenRouter exposes many models behind a single API key; 'local' targets a locally hosted Ollama-compatible endpoint.",
         )
-        ai_model = st.text_input("Model (empty = provider default)", "")
+        ai_model = st.text_input(
+            "Model (empty = provider default)", "",
+            help="Model slug for the chosen provider (e.g. 'anthropic/claude-opus-4-7' on OpenRouter). Leave empty to use the provider default configured in src/ai_analyzer.py.",
+        )
         if st.button("🤖 Run AI analysis"):
             from src.ai_analyzer import build_analysis_prompt, get_analyzer, save_analysis
 
