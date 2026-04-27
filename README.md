@@ -9,6 +9,7 @@
 [![FIRE](https://img.shields.io/badge/%F0%9F%94%A5-FIRE%20calculator-orange.svg)](#fire)
 [![AI Analysis](https://img.shields.io/badge/AI-OpenRouter%20%7C%20OpenAI%20%7C%20Anthropic%20%7C%20Local-blueviolet.svg)](#ai)
 [![Article](https://img.shields.io/badge/Medium-Read%20the%20article-black.svg)](https://medium.com/@padosoft)
+[![Screenshoots]](#screenshoots)
 
 > **The open-source, fund-manager-grade toolkit for backtesting a multi-asset portfolio over 20 years, stress-testing it with Monte Carlo + rolling windows + Markowitz frontier + Italian tax + FIRE projection, and getting an LLM to review the results — either from the CLI or through a beautiful Streamlit dashboard you can deploy in one click.**
 
@@ -16,7 +17,8 @@ If you are an investor, quant curious, aspiring FIRE retiree, or data scientist 
 
 The engine currently runs the **Four Umbrellas** defensive preset — the strategy from the companion Medium article [*"The Four Umbrellas Portfolio"*](https://medium.com/@padosoft) — as the default (and only) portfolio; customization for now requires editing `src/portfolio.py`. Every allocation decision, every metric, every chart in that article is reproducible here. **Generic multi-portfolio support (CLI `--portfolio` flag, interactive asset picker, save/load) is tracked in the upcoming PR2+ refactor.**
 
-![Streamlit dashboard — Charts tab with equity curve and drawdown](resources/charts.png)
+![dashboard — Charts tab with equity curve and drawdown](resources/result-charts.png)
+![dashboard](resources/dashboard.png)
 
 ---
 
@@ -1299,6 +1301,19 @@ Plus the testing infrastructure:
 
 ### Q: Is the options overlay modeled realistically enough to trust for execution planning?
 **A:** Realistic enough for relative comparisons and order-of-magnitude sizing. Not realistic enough for precise trade execution forecasting. If you plan to actually run the overlay, validate your specific broker's behavior on a few test trades first.
+
+---
+
+## Screenshoots
+![result-charts.png](resources/result-charts.png)
+![dashboard.png](resources/dashboard.png)
+![result-summary.png](resources/result-summary.png)
+![result-efficient-frontier.png](resources/result-efficient-frontier.png)
+![result-montecarlo.png](resources/result-montecarlo.png)
+![result-fire.png](resources/result-fire.png)
+![result-walk-forward.png](resources/result-walk-forward.png)
+![result-Ai-Analysis.png](resources/result-Ai-Analysis.png)
+![saved-portfolio.png](resources/saved-portfolio.png)
 
 ---
 
