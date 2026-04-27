@@ -648,19 +648,17 @@ Since PR4, the sidebar is just brand + links. Everything happens in the tabs at 
 <a id="screenshots"></a>
 ## 📸 Screenshots
 
-A quick preview of what the Streamlit dashboard looks like when you run it locally.
 
-### Summary tab — statistics & crisis drawdowns
+![result-charts.png](resources/result-charts.png)
+![dashboard.png](resources/dashboard.png)
+![result-summary.png](resources/result-summary.png)
+![result-efficient-frontier.png](resources/result-efficient-frontier.png)
+![result-montecarlo.png](resources/result-montecarlo.png)
+![result-fire.png](resources/result-fire.png)
+![result-walk-forward.png](resources/result-walk-forward.png)
+![result-Ai-Analysis.png](resources/result-Ai-Analysis.png)
+![saved-portfolio.png](resources/saved-portfolio.png)
 
-Sidebar on the left (data source, date range, NAV, portfolio weight sliders, features, Monte Carlo, benchmarks, Run/Save actions). Main area shows the summary-statistics table (CAGR, vol, Sharpe, Sortino, Max DD, Calmar, Ulcer, CVaR, UPI, …) and the crisis peak-to-trough drawdowns (GFC 2008, COVID 2020, Stagflation 2022) for every portfolio side-by-side.
-
-![Streamlit dashboard — Summary tab with statistics and crisis drawdowns](resources/summary.png)
-
-### Charts tab — equity curve & drawdown
-
-The Charts tab shows the full set of inline charts (equity curve on a log scale, drawdown from prior peak, underwater periods, rolling Sharpe, crisis zooms, annual returns, return distribution, risk/return scatter, metrics comparison, correlation heatmap). Screenshot below shows the first two stacked.
-
-![Streamlit dashboard — Charts tab with equity curve and drawdown](resources/charts.png)
 
 ---
 
@@ -1304,19 +1302,6 @@ Plus the testing infrastructure:
 
 ### Q: Is the options overlay modeled realistically enough to trust for execution planning?
 **A:** Realistic enough for relative comparisons and order-of-magnitude sizing. Not realistic enough for precise trade execution forecasting. If you plan to actually run the overlay, validate your specific broker's behavior on a few test trades first.
-
----
-
-## 📸 More screenshots
-![result-charts.png](resources/result-charts.png)
-![dashboard.png](resources/dashboard.png)
-![result-summary.png](resources/result-summary.png)
-![result-efficient-frontier.png](resources/result-efficient-frontier.png)
-![result-montecarlo.png](resources/result-montecarlo.png)
-![result-fire.png](resources/result-fire.png)
-![result-walk-forward.png](resources/result-walk-forward.png)
-![result-Ai-Analysis.png](resources/result-Ai-Analysis.png)
-![saved-portfolio.png](resources/saved-portfolio.png)
 
 ---
 
