@@ -28,8 +28,8 @@ The engine currently runs the **Four Umbrellas** defensive preset — the strate
 > **Python newcomers, read this first.** Every `python …` command below assumes you've already activated the project virtual environment in your current terminal. If you haven't, the script will stop with a clear error explaining the two ways to fix it. The full step-by-step install (venv creation + activation + deps) is in [**Installing from scratch**](#install) — do that once, then come back here.
 
 ```bash
-git clone https://github.com/padosoft/four-umbrellas-backtest.git
-cd four-umbrellas-backtest
+git clone https://github.com/padosoft/portfolio-backtest.git
+cd portfolio-backtest
 
 # 1) Create the virtual environment (once)
 python -m venv .venv
@@ -123,11 +123,11 @@ python --version
 ### 2. Clone the project and enter the folder
 
 ```bash
-git clone https://github.com/padosoft/four-umbrellas-backtest.git
-cd four-umbrellas-backtest
+git clone https://github.com/padosoft/portfolio-backtest.git
+cd portfolio-backtest
 ```
 
-Everything below assumes your terminal is inside this `four-umbrellas-backtest/` folder.
+Everything below assumes your terminal is inside this `portfolio-backtest/` folder.
 
 ### 3. Create the virtual environment (once, ~10 seconds)
 
@@ -153,7 +153,7 @@ You now have a `.venv/` folder in the project. Do not edit it; Git ignores it.
 You'll know activation worked when your prompt gets a `(.venv)` prefix:
 
 ```text
-(.venv) PS C:\Users\you\four-umbrellas-backtest>
+(.venv) PS C:\Users\you\portfolio-backtest>
 ```
 
 > **PowerShell says "running scripts is disabled"?** Run this once, answer `Y`, then retry activation:
@@ -209,7 +209,7 @@ Then open `.env` in any text editor and paste your API key(s). See the [AI secti
 Each new terminal window:
 
 ```bash
-cd four-umbrellas-backtest
+cd portfolio-backtest
 .venv\Scripts\Activate.ps1    # (or the right activation command for your shell)
 python backtest.py --synthetic --monte-carlo   # or any other command
 ```
@@ -573,8 +573,8 @@ Works end-to-end with **synthetic data** so you can verify the plumbing before s
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/padosoft/four-umbrellas-backtest.git
-cd four-umbrellas-backtest
+git clone https://github.com/padosoft/portfolio-backtest.git
+cd portfolio-backtest
 
 # 2. Create virtual environment
 python -m venv .venv
@@ -765,7 +765,7 @@ The project reads API keys from a plain-text `.env` file at the project root. Th
 At the **project root** — the same folder that contains `backtest.py`, `fire.py`, `analyze.py`, and `requirements.txt`:
 
 ```text
-four-umbrellas-backtest/
+portfolio-backtest/
 ├── backtest.py
 ├── fire.py
 ├── analyze.py
@@ -954,8 +954,8 @@ Output: scatter plot with 50k portfolios colored by Sharpe + smooth Markowitz fr
 See the full, step-by-step guide in [**Installing from scratch**](#install). The short version (if you already know venvs):
 
 ```bash
-git clone https://github.com/padosoft/four-umbrellas-backtest.git
-cd four-umbrellas-backtest
+git clone https://github.com/padosoft/portfolio-backtest.git
+cd portfolio-backtest
 python -m venv .venv
 source .venv/bin/activate   # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
@@ -1207,7 +1207,7 @@ Net effect: the backtest is **slightly optimistic** vs real-world execution by ~
 ## Architecture
 
 ```
-four-umbrellas-backtest/
+portfolio-backtest/
 ├── backtest.py              # main entry point; CLI parsing, orchestration
 ├── fetch_data.py            # public-data fetcher (Yahoo + FRED)
 ├── requirements.txt
@@ -1377,7 +1377,7 @@ The `.github/workflows/tests.yml` workflow:
 4. Verifies that `output/REPORT.md`, at least one chart PNG, and `summary_statistics.csv` are produced
 5. Reports to GitHub and blocks PRs that fail any check
 
-To see the latest CI run: [Actions tab](https://github.com/padosoft/four-umbrellas-backtest/actions).
+To see the latest CI run: [Actions tab](https://github.com/padosoft/portfolio-backtest/actions).
 
 ### Writing new tests
 
@@ -1402,7 +1402,7 @@ Metrics++ · MC scenarios · extra benchmarks · sensitivity sweep · rolling-wi
 - [ ] **Factor attribution** — Fama-French 5 + Momentum attribution per sleeve
 - [ ] **Tax lot optimization** — HIFO / specific-lot selection instead of FIFO for CGT minimization
 - [ ] **Monte Carlo regime-switching** — Hamilton-style 2-regime MC (calm / crisis) with transition probabilities
-- [ ] **PyPI package** — so users can `pip install four-umbrellas-backtest`
+- [ ] **PyPI package** — so users can `pip install portfolio-backtest`
 - [ ] **English AI output toggle** — today the LLM writes in Italian; add an `--lang en` flag
 - [ ] **Live data adapters** — polygon.io / EOD Historical Data optional connectors for fresh data without manual downloads
 - [ ] **Notebook gallery** — example notebooks showing each analysis interactively
@@ -1427,8 +1427,8 @@ This is an active research project with a growing community. **Contributions are
 
 ```bash
 # 1. Fork and clone your fork
-git clone https://github.com/YOUR_USERNAME/four-umbrellas-backtest.git
-cd four-umbrellas-backtest
+git clone https://github.com/YOUR_USERNAME/portfolio-backtest.git
+cd portfolio-backtest
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt     # installs pytest + pytest-cov + runtime deps
 
@@ -1485,13 +1485,13 @@ If you use this code or reproduce any result from it in your own writing, please
   author  = {Padovani, Lorenzo},
   title   = {The Four Umbrellas Portfolio: An Enterprise-Grade, Academically-Grounded Global Allocation with Layered Defensive Convexity — 20-Year Backtest},
   year    = {2026},
-  url     = {https://github.com/padosoft/four-umbrellas-backtest},
+  url     = {https://github.com/padosoft/portfolio-backtest},
   note    = {Open-source Python backtest. MIT license.},
 }
 ```
 
 Plain text:
-> Padovani, L. (2026). *The Four Umbrellas Portfolio: A 20-Year Backtest of a Multi-Layer Defensive Global Allocation*. GitHub: padosoft/four-umbrellas-backtest.
+> Padovani, L. (2026). *The Four Umbrellas Portfolio: A 20-Year Backtest of a Multi-Layer Defensive Global Allocation*. GitHub: padosoft/portfolio-backtest.
 
 ---
 
