@@ -54,11 +54,11 @@ EQUITY: Dict[str, float] = {
     "hc_world":     0.051,    # MSCI World Healthcare, unhedged
     "quality":      0.073,    # Quality / Developed Aristocrats, unhedged
     "momentum":     0.058,    # MSCI World Momentum, unhedged
-    "ex_usa":       0.015,    # MSCI World ex-USA, unhedged
+    "ex_usa":       0.0152,   # MSCI World ex-USA, unhedged (rounded up by 0.02% so EQUITY sums exactly to 0.4672 and the flattened TOML totals 100%)
 }
 
-# Sanity check (allow 0.1% rounding tolerance since article percentages are rounded)
-assert abs(sum(EQUITY.values()) - WEIGHTS["equity"]) < 0.001, \
+# Sanity check — EQUITY sleeve must match the parent allocation exactly
+assert abs(sum(EQUITY.values()) - WEIGHTS["equity"]) < 1e-9, \
     f"Equity sleeve must sum to {WEIGHTS['equity']}, got {sum(EQUITY.values())}"
 
 
