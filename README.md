@@ -9,7 +9,7 @@
 [![FIRE](https://img.shields.io/badge/%F0%9F%94%A5-FIRE%20calculator-orange.svg)](#fire)
 [![AI Analysis](https://img.shields.io/badge/AI-OpenRouter%20%7C%20OpenAI%20%7C%20Anthropic%20%7C%20Local-blueviolet.svg)](#ai)
 [![Article](https://img.shields.io/badge/Medium-Read%20the%20article-black.svg)](https://medium.com/@padosoft)
-[![Screenshoots]](#screenshoots)
+[![Screenshots](https://img.shields.io/badge/%F0%9F%93%B8-More%20screenshots-blueviolet.svg)](#-more-screenshots)
 
 > **The open-source, fund-manager-grade toolkit for backtesting a multi-asset portfolio over 20 years, stress-testing it with Monte Carlo + rolling windows + Markowitz frontier + Italian tax + FIRE projection, and getting an LLM to review the results — either from the CLI or through a beautiful Streamlit dashboard you can deploy in one click.**
 
@@ -74,26 +74,29 @@ Jump to: [**Install**](#install) · [**CLI reference**](#cli) · [**GUI launch**
 
 - [⚡ TL;DR — try it in 30 seconds](#tldr)
 - [🛠️ Installing from scratch (step-by-step)](#install)
-- [What's new in v2.0 🚀](#whats-new)
-- [🌟 Why you'll actually enjoy using this](#why)
 - [📋 CLI reference — everything you can do from the terminal](#cli)
 - [🧰 Custom portfolios — `--portfolio` flag](#custom-portfolios)
-- [🖥️ Running the interactive dashboard locally](#dashboard-local)
+- [What's new in v2.0 🚀](#whats-new)
+- [🌟 Why you'll actually enjoy using this](#why)
+- [What this is](#what-this-is)
+- [Why it exists](#why-it-exists)
+- [Features](#features)
+- [What it calculates](#what-it-calculates)
+- [Example output](#example-output)
+- [Quick start (5 minutes)](#quick-start-5-minutes)
+- [Running the interactive dashboard locally](#dashboard-local)
 - [📸 Screenshots](#screenshots)
 - [🚀 Deploy the dashboard publicly](#deploy-public)
 - [🔥 FIRE calculator — plan your retirement](#fire)
 - [🤖 AI analysis — LLM-driven qualitative review](#ai)
 - [Advanced analyses (sensitivity, rolling window, frontier)](#advanced-analyses)
-- [What this is](#what-this-is)
-- [Features](#features)
-- [What it calculates](#what-it-calculates)
-- [Example output](#example-output)
 - [Full onboarding](#full-onboarding)
 - [Usage recipes](#usage-recipes)
 - [Configuration](#configuration)
 - [Methodology](#methodology)
 - [Architecture](#architecture)
 - [FAQ](#faq)
+- [📸 More screenshots](#-more-screenshots)
 - [Testing](#testing)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
@@ -1304,7 +1307,7 @@ Plus the testing infrastructure:
 
 ---
 
-## Screenshoots
+## 📸 More screenshots
 ![result-charts.png](resources/result-charts.png)
 ![dashboard.png](resources/dashboard.png)
 ![result-summary.png](resources/result-summary.png)
