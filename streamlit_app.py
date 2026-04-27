@@ -370,11 +370,18 @@ with tab_settings:
         })
 
     if rows:
+        # ``num_rows="dynamic"`` exposes Streamlit's native row-delete affordance
+        # (left-side checkbox + Delete key, or right-click → Delete row), so we
+        # don't render a separate trash-button grid. The "Add row" button it
+        # also exposes is harmless: Asset/Key/Dati dal columns are disabled, so
+        # any row added inline lands with Key=None and gets filtered out by the
+        # sync below — users add real assets via the picker above.
         edited = st.data_editor(
             pd.DataFrame(rows),
             hide_index=True,
             use_container_width=True,
             disabled=["Asset", "Key", "Dati dal"],
+            num_rows="dynamic",
             column_config={
                 "Peso %": st.column_config.NumberColumn(
                     "Peso %", min_value=0.0, max_value=100.0, step=0.5, format="%.2f",
@@ -382,20 +389,13 @@ with tab_settings:
             },
             key="_portfolio_editor",
         )
-        # Reflect user edits back into session_state (before the Delete button
-        # handler reads it).
+        # Reflect user edits + deletions back into session_state. Skip rows
+        # with a null/empty Key (placeholder rows added inline by the editor).
         st.session_state["portfolio_assets"] = [
-            {"key": row["Key"], "weight": float(row["Peso %"]) / 100.0}
+            {"key": row["Key"], "weight": float(row["Peso %"] or 0.0) / 100.0}
             for _, row in edited.iterrows()
+            if row["Key"] and not pd.isna(row["Key"])
         ]
-
-        # Per-row delete: one small button per asset. Dense layout.
-        del_cols = st.columns(max(len(rows), 1))
-        for i, (col, row) in enumerate(zip(del_cols, rows)):
-            with col:
-                if st.button(f"🗑️ {row['Key']}", key=f"_del_{row['Key']}"):
-                    st.session_state["portfolio_assets"].pop(i)
-                    st.rerun()
     else:
         st.info("Nessun asset selezionato. Usa il picker qui sopra o carica un preset.")
 
