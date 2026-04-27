@@ -1340,6 +1340,13 @@ Summary statistics:
                     analyzer = get_analyzer(ai_provider, ai_model if ai_model else None)
                     response = analyzer.analyze(prompt)
                 st.success(f"Analysis complete — {response.model}")
+                if response.truncated:
+                    st.warning(
+                        "⚠️ The response was truncated by the provider's output-token "
+                        "cap and may be missing the final section(s). Re-run with a "
+                        "shorter prompt or raise `MAX_OUTPUT_TOKENS` in "
+                        "`src/ai_analyzer.py`."
+                    )
                 st.markdown(response.content)
                 if st.session_state["save_results"]:
                     save_analysis(response, last_run["output_dir"] / "AI_ANALYSIS.md")
